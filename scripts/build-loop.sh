@@ -262,7 +262,18 @@ while (( cycle < MAX_CYCLES )); do
     git push
   fi
 
-  if grep -Eq '^AUTOMATION_STATUS:[[:space:]]*DONE[[:space:]]*$' BUILD_TICKETS.md; then
+  automation_status="$(
+    awk -F: '
+      /^AUTOMATION_STATUS:/ {
+        status=$2
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", status)
+        print status
+        exit
+      }
+    ' BUILD_TICKETS.md
+  )"
+
+  if [[ "$automation_status" == "DONE" ]]; then
     echo "Build tickets marked done."
     exit 0
   fi
