@@ -15,7 +15,7 @@ The build loop must select the lowest-numbered TODO or IN_PROGRESS ticket.
 
 ## 000 — Bootstrap repository skeleton
 
-Status: TODO
+Status: DONE
 
 Create the initial repository structure.
 

@@ -1,16 +1,20 @@
-
-
 # BUILD_NOTES.md
 
 ## Current state
 
-Repository bootstrap only.
-
-The next run should start with the lowest-numbered TODO ticket in `BUILD_TICKETS.md`.
+Ticket 000 is complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, and a reusable quality gate.
 
 ## Quality gates
 
-No application quality gates have run yet.
+Latest run:
+
+- `scripts/quality-gate.sh` — passed
+  - shell syntax checks
+  - `uv sync --locked --all-groups`
+  - `uv run ruff check .`
+  - `uv run ruff format --check .`
+  - `uv run mypy src tests`
+  - `uv run pytest --cov=job_runner_platform --cov-report=term-missing`
 
 ## Public-safety notes
 
@@ -22,8 +26,16 @@ Do not implement arbitrary shell command execution. Jobs must be safe allowliste
 
 ## Latest cycle notes
 
-None yet.
+- Added `README.md` with portfolio framing, public-safety constraints, no arbitrary command execution rule, skills demonstrated, quick start, layout, configuration, and quality gate notes.
+- Added `pyproject.toml`, generated `uv.lock`, and created the package under `src/job_runner_platform/`.
+- Added a basic import test in `tests/test_import.py`.
+- Added `docs/` and `docs/decisions/` placeholders for later tickets.
+- Replaced the quality gate with an executable shell script and added Makefile convenience targets.
+
+## Limitations
+
+Only the bootstrap skeleton exists. The FastAPI application, settings, logging, database, queue, worker, metrics, Docker Compose, CI, and detailed operations docs remain future tickets.
 
 ## Next recommended ticket
 
-Ticket 000.
+Ticket 001.
