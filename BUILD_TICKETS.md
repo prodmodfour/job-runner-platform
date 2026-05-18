@@ -211,7 +211,7 @@ Commit when complete.
 
 ## 005 — Add Redis queue abstraction
 
-Status: TODO
+Status: DONE
 
 Implement a queue abstraction that hides Redis details.
 

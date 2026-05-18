@@ -31,6 +31,7 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://localhost:5432/job_runner",
         min_length=1,
     )
+    redis_url: str = Field(default="redis://localhost:6379/0", min_length=1)
 
     @field_validator("log_level")
     @classmethod

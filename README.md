@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, and an internal SQLAlchemy repository layer for job persistence/state transitions. Redis dispatch, service/API job routes, worker runtime, retries, cancellation handling in workers, leases recovery loops, metrics, Docker Compose, and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, and a Redis-backed queue abstraction for job-ID dispatch signals. Service/API job routes, worker runtime, retries, cancellation handling in workers, leases recovery loops, metrics, Docker Compose, and CI will be added in later tickets.
 
 ## Public-safety constraints
 
@@ -71,7 +71,8 @@ Implemented app-shell settings:
 | `JOB_RUNNER_ENVIRONMENT` | `local` | Environment label emitted by health responses and logs. |
 | `JOB_RUNNER_LOG_LEVEL` | `INFO` | Root structured logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`). |
 | `JOB_RUNNER_DOCS_ENABLED` | `false` | Enables `/docs`, `/redoc`, and `/openapi.json` only when explicitly set to `true`. |
-| `JOB_RUNNER_DATABASE_URL` | `postgresql+asyncpg://localhost:5432/job_runner` | Async SQLAlchemy database URL used by Alembic and future repositories. |
+| `JOB_RUNNER_DATABASE_URL` | `postgresql+asyncpg://localhost:5432/job_runner` | Async SQLAlchemy database URL used by Alembic and repositories. |
+| `JOB_RUNNER_REDIS_URL` | `redis://localhost:6379/0` | Redis URL used by the queue abstraction for job-ID dispatch signals. |
 
 The ASGI application factory is `job_runner_platform.api.app:create_app`, and the default app object is `job_runner_platform.api.app:app`.
 
@@ -79,7 +80,13 @@ The ASGI application factory is `job_runner_platform.api.app:create_app`, and th
 
 The job schema layer defines the future API contract for safe demo jobs. Supported job types are allowlisted values only: `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`. Job statuses are explicit: `queued`, `running`, `succeeded`, `failed`, `cancel_requested`, `cancelled`, and `dead_lettered`.
 
-Job request/response schemas cover creation, detail views, list pages, cancellation responses, idempotency keys, attempts/max attempts, JSON payload/result fields, errors, timestamps, and lease metadata. The PostgreSQL `jobs` table mirrors those fields, with indexes for status, creation time, idempotency keys, and lease expiry. An internal repository layer now owns SQLAlchemy access for creation, fetching/listing, idempotency lookup, cancellation requests, worker claim/complete/fail/dead-letter/requeue transitions, and stale lease lookup. Job routes are not exposed until a later ticket adds services and queueing.
+Job request/response schemas cover creation, detail views, list pages, cancellation responses, idempotency keys, attempts/max attempts, JSON payload/result fields, errors, timestamps, and lease metadata. The PostgreSQL `jobs` table mirrors those fields, with indexes for status, creation time, idempotency keys, and lease expiry. An internal repository layer now owns SQLAlchemy access for creation, fetching/listing, idempotency lookup, cancellation requests, worker claim/complete/fail/dead-letter/requeue transitions, and stale lease lookup. Job routes are not exposed until a later ticket adds services.
+
+## Queue dispatch abstraction
+
+Redis is used only as a dispatch signal for persisted job IDs; PostgreSQL remains the source of truth for job state. The queue abstraction supports enqueue, dequeue/poll, acknowledgement, and readiness checks while hiding Redis calls from future services/workers. Duplicate job-ID messages are tolerated because workers must claim the job through the repository before running it, so an already-claimed or terminal row is safely ignored.
+
+See [`docs/decisions/0002-redis-as-dispatch-signal.md`](docs/decisions/0002-redis-as-dispatch-signal.md) for the design record.
 
 ## Database migrations
 

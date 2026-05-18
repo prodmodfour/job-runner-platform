@@ -88,6 +88,7 @@ def test_settings_load_from_job_runner_environment(monkeypatch: MonkeyPatch) -> 
     monkeypatch.setenv("JOB_RUNNER_ENVIRONMENT", "env-test")
     monkeypatch.setenv("JOB_RUNNER_LOG_LEVEL", "debug")
     monkeypatch.setenv("JOB_RUNNER_DOCS_ENABLED", "true")
+    monkeypatch.setenv("JOB_RUNNER_REDIS_URL", "redis://localhost:6379/5")
 
     settings = Settings()
 
@@ -96,3 +97,4 @@ def test_settings_load_from_job_runner_environment(monkeypatch: MonkeyPatch) -> 
     assert settings.environment == "env-test"
     assert settings.log_level == "DEBUG"
     assert settings.docs_enabled is True
+    assert settings.redis_url == "redis://localhost:6379/5"

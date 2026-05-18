@@ -1,3 +1,5 @@
 # Architecture decision records
 
-ADRs for the job runner platform will be added in later build tickets.
+- [0002 — Redis as dispatch signal](0002-redis-as-dispatch-signal.md)
+
+Additional ADRs will be added in later build tickets.

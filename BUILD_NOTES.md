@@ -2,44 +2,17 @@
 
 ## Current state
 
-Tickets 000, 001, 002, 003, and 004 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, PostgreSQL persistence scaffolding with Alembic migrations, and an internal repository layer for job persistence/state transitions.
+Tickets 000, 001, 002, 003, 004, and 005 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, PostgreSQL persistence scaffolding with Alembic migrations, an internal repository layer for job persistence/state transitions, and a Redis-backed queue abstraction for job-ID dispatch signals.
 
-Ticket 001 added:
+Ticket 005 added:
 
-- FastAPI app factory at `job_runner_platform.api.app:create_app` plus default ASGI app `job_runner_platform.api.app:app`.
-- `Settings` loaded from `JOB_RUNNER_`-prefixed environment variables.
-- Docs/OpenAPI disabled by default and enabled only with `JOB_RUNNER_DOCS_ENABLED=true`.
-- Structured JSON logging with request ID context.
-- `X-Request-ID` propagation/generation middleware.
-- `GET /healthz` liveness endpoint returning app metadata.
-- Tests for health, request IDs, docs configuration, environment-backed settings, and JSON log formatting.
-- README configuration/API shell updates and refreshed `example.env` wording.
-
-Ticket 002 added:
-
-- Job domain definitions for safe allowlisted job types, explicit statuses, IDs, attempts, max attempts, priority, JSON payload/result fields, idempotency keys, timestamps, and lease metadata.
-- Pydantic schemas for create requests, create responses, detail responses, list responses, and cancellation responses.
-- Validation for unsafe job types, JSON-serializable payload/result fields, aware timestamps, bounded attempts/priority, and list count consistency.
-- Schema tests covering safe and unsafe job types plus response validation.
-- README notes for the current job schema contract.
-
-Ticket 003 added:
-
-- Runtime dependencies for SQLAlchemy asyncio, asyncpg, and Alembic.
-- `JOB_RUNNER_DATABASE_URL` settings support with a public-safe local PostgreSQL placeholder default.
-- A repository-friendly database package under `src/job_runner_platform/database/` with declarative metadata, a `JobModel`, async engine/sessionmaker helpers, and a transactional session scope helper.
-- A PostgreSQL `jobs` table model with UUID primary key, allowlisted job type/status check constraints, JSON payload/result fields, attempts/max attempts, idempotency key, lease fields, timestamps, priority, and useful status/created/idempotency/lease indexes.
-- Alembic configuration at `alembic.ini`, async migration environment at `migrations/env.py`, and initial revision `0001_create_jobs_table`.
-- Tests for database metadata, PostgreSQL DDL compilation, async engine/session factory setup, and migration file presence.
-- README updates for database configuration and Alembic usage.
-
-Ticket 004 added:
-
-- `job_runner_platform.repositories.JobRepository`, keeping SQLAlchemy reads/writes inside the repository layer.
-- Repository methods for job creation, fetch by ID, list with pagination/status filtering, idempotency key lookup, cancellation requests, queued job claiming, completion, failure, dead-lettering, requeueing, and stale leased job lookup.
-- Safe state-transition behaviour for duplicate claims, terminal cancellation requests, lease metadata, attempts increments on claim, result/error persistence, and retry/recovery requeue support.
-- Async repository tests using a local SQLite database through SQLAlchemy plus existing PostgreSQL DDL/migration coverage; `aiosqlite` is now a dev dependency for these tests.
-- README updates noting the internal repository layer and that job routes remain future work.
+- `job_runner_platform.queues.JobQueue`, a narrow async protocol for enqueue, dequeue/poll, acknowledgement, and readiness checks.
+- `RedisJobQueue`, backed by a Redis list using `LPUSH` plus `RPOP`/`BRPOP` so Redis remains a dispatch signal instead of the source of truth.
+- `InMemoryJobQueue`, a test fake with the same duplicate-message semantics and configurable readiness.
+- `JOB_RUNNER_REDIS_URL` settings support and a runtime dependency on `redis`.
+- Tests for queue enqueue/dequeue/acknowledgement/readiness behaviour and duplicate dispatch signals being safely ignored by database claim state.
+- `docs/decisions/0002-redis-as-dispatch-signal.md` documenting the Redis-as-signal design, duplicate tolerance, and limitations.
+- README updates for Redis configuration and queue architecture.
 
 ## Quality gates
 
@@ -55,8 +28,10 @@ Latest run:
 
 Additional validation this cycle:
 
-- `uv run pytest tests/test_job_repository.py -q` — passed.
-- `uv run ruff check . && uv run ruff format --check . && uv run pytest -q` — passed.
+- `uv run ruff check .` — passed.
+- `uv run ruff format --check .` — passed.
+- `uv run mypy src tests` — passed.
+- `uv run pytest -q` — passed.
 
 ## Public-safety notes
 
@@ -68,15 +43,15 @@ Do not implement arbitrary shell command execution. Jobs must be safe allowliste
 
 ## Latest cycle notes
 
-- Added only the repository layer required by ticket 004; no Redis queueing, services, job routes, worker runtime, handler execution, readiness checks, or metrics were introduced.
-- Kept database access isolated below future services so routes can remain thin when added later.
-- Claiming uses repository-managed row locking where the database supports it and re-checks explicit job status so duplicate dispatch signals can be ignored safely by future workers.
+- Added only the queue abstraction required by ticket 005; no service layer, job routes, worker runtime, handler execution, readiness endpoint, metrics, retries, or Docker Compose stack were introduced.
+- Kept Redis calls hidden behind the queue package so future routes can remain thin and future services/workers do not depend on Redis client details.
+- Chose a simple Redis list design because PostgreSQL remains the durable job state authority; duplicate Redis messages are permitted and database claim checks prevent duplicate execution.
 - No arbitrary command execution, subprocess execution, credentials, private details, or employer-specific content were added.
 
 ## Limitations
 
-The API shell still exposes only `/healthz`; `/readyz`, `/metrics`, job routes, service methods, Redis queueing, worker runtime, auth, Docker Compose, and CI remain future tickets. Repository behaviour is covered with async SQLAlchemy tests against a local SQLite database so the quality gate remains self-contained before Docker Compose exists; live PostgreSQL integration can be expanded once the local stack and CI service container are added.
+The API shell still exposes only `/healthz`; `/readyz`, `/metrics`, job routes, service methods, worker runtime, auth, Docker Compose, and CI remain future tickets. Queue tests use fakes and SQLite-backed repository checks so the quality gate remains self-contained before Docker Compose exists. The Redis list signal can be lost if a process crashes after popping but before claiming a job; the durable PostgreSQL row remains queued, and future worker/recovery tickets should reconcile queued or stale rows from the source of truth.
 
 ## Next recommended ticket
 
-Ticket 005.
+Ticket 006.
