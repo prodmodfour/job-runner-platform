@@ -2,7 +2,7 @@
 
 ## Current state
 
-Tickets 000 through 020 are complete. The repository now has the initial Python
+Tickets 000 through 021 are complete. The repository now has the initial Python
 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode,
 pytest, pytest-cov, documentation directories, public-safe example
 configuration, a reusable quality gate, a FastAPI application shell, explicit
@@ -15,29 +15,24 @@ retry/dead-letter behaviour, lease-based stale job recovery, cooperative worker
 cancellation handling, API readiness checks for PostgreSQL and Redis,
 Prometheus metrics exposition, optional API key authentication for business job
 endpoints, a local Docker Compose stack, local Prometheus/Grafana observability
-configuration, GitHub Actions CI, automation guardrail scripts, and completed
-core architecture/operations/runbook/API walkthrough documentation.
+configuration, GitHub Actions CI, automation guardrail scripts, completed core
+architecture/operations/runbook/API walkthrough documentation, and the required
+architecture decision records.
 
-Ticket 020 added:
+Ticket 021 added:
 
-- `docs/architecture.md`, covering the system context, code boundaries, job data
-  model, lifecycle/state transitions, idempotent submission, Redis dispatch
-  signal design, worker processing, retry/dead-letter behaviour, cancellation,
-  leases/stale recovery, observability, public-safety posture, and limitations.
-- `docs/api-walkthrough.md`, covering local HTTP examples for health,
-  readiness, metrics, job creation, fetch/list, idempotency replay, handler
-  examples, retry/dead-letter observation, cancellation, response fields, auth,
-  and common errors.
-- `docs/operations.md`, covering local Docker Compose operation, manual runs,
-  configuration, migrations, readiness, logs, metrics, common workflows,
-  failure modes, security notes, and known limitations.
-- An expanded `docs/runbook.md` with triage and procedures for API health,
-  PostgreSQL/Redis readiness, queued jobs, retries/dead-lettering,
-  cancellation, stale leases, metrics, API key auth, and quality gate failures.
-- An updated `docs/README.md` documentation index.
-- `tests/test_documentation.py`, which asserts the ticket 020 documentation files
-  exist, are linked from the docs index, and cover the required operational and
-  architecture topics.
+- `docs/decisions/0001-postgres-source-of-truth.md`, documenting PostgreSQL as
+  the durable source of truth for jobs, idempotency, attempts, leases, results,
+  and lifecycle state.
+- `docs/decisions/0003-allowlisted-demo-job-handlers.md`, documenting the
+  public-safe built-in handler allowlist and the deliberate exclusion of
+  arbitrary command, code, container, subprocess, or host-operation execution.
+- An updated `docs/decisions/README.md` linking all required ADRs: PostgreSQL
+  source of truth, Redis dispatch signal, allowlisted demo handlers, and leases
+  with stale recovery.
+- Expanded documentation tests in `tests/test_documentation.py` that assert all
+  required ADR files exist, include the expected `Status`, `Context`,
+  `Decision`, and `Consequences` sections, and are linked from the ADR index.
 
 ## Quality gates
 
@@ -52,12 +47,11 @@ Latest run:
   - `uv run ruff format --check .`
   - `uv run mypy src tests`
   - `uv run pytest --cov=job_runner_platform --cov-report=term-missing`
-    (`104 passed`)
+    (`106 passed`)
 
 Additional validation this cycle:
 
-- `uv run pytest tests/test_documentation.py -q` — passed (`3 passed`).
-- `scripts/check-public-safety.sh` — passed.
+- `uv run pytest tests/test_documentation.py -q` — passed (`5 passed`).
 
 ## Public-safety notes
 
@@ -76,25 +70,25 @@ files or an environment variable; do not commit those private terms.
 
 ## Latest cycle notes
 
-- Implemented only the documentation scope required by ticket 020; ADR
-  completion, smoke/demo scripts, final README polish, and final repository
-  review remain future tickets.
+- Implemented only the ADR documentation scope required by ticket 021; smoke/demo
+  scripts, final README polish, and final repository review remain future
+  tickets.
 - Preserved runtime architecture and job execution behaviour: no route,
   service, repository, queue, worker, handler, migration, Compose, or CI
   implementation code changed for this documentation ticket.
 - Preserved public-safety constraints: no employer/private details, external
   secrets, arbitrary user-submitted commands, subprocess job handlers, or host
   filesystem mutation features were added.
-- Added lightweight documentation coverage tests to keep the required docs and
-  topic coverage from regressing.
+- Added lightweight ADR coverage tests to keep the required decision records and
+  ADR index links from regressing.
 
 ## Limitations
 
-The new documentation describes the current local portfolio/demo behaviour; it
-is not a production operations, security, backup, or alerting baseline. The
-Docker Compose stack remains local-only and uses placeholder settings. Metrics
-remain process-local, worker leases do not heartbeat, queued-row reconciliation
-for lost Redis signals is not implemented, API readiness does not verify worker
+The ADRs describe the current local portfolio/demo behaviour; they are not a
+production operations, security, backup, or alerting baseline. The Docker Compose
+stack remains local-only and uses placeholder settings. Metrics remain
+process-local, worker leases do not heartbeat, queued-row reconciliation for lost
+Redis signals is not implemented, API readiness does not verify worker
 availability, and the Grafana dashboard remains intentionally basic.
 
 The guardrails are intentionally lightweight static checks. They catch obvious
@@ -106,4 +100,4 @@ private employer-specific terms.
 
 ## Next recommended ticket
 
-Ticket 021.
+Ticket 022.

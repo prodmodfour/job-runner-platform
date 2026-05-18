@@ -4,11 +4,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = ROOT / "docs"
+DECISIONS_DIR = DOCS_DIR / "decisions"
 REQUIRED_TICKET_020_DOCS = (
     "architecture.md",
     "api-walkthrough.md",
     "operations.md",
     "runbook.md",
+)
+REQUIRED_ADRS = (
+    "0001-postgres-source-of-truth.md",
+    "0002-redis-as-dispatch-signal.md",
+    "0003-allowlisted-demo-job-handlers.md",
+    "0004-leases-and-stale-job-recovery.md",
+)
+REQUIRED_ADR_SECTIONS = (
+    "## Status",
+    "## Context",
+    "## Decision",
+    "## Consequences",
 )
 REQUIRED_TOPICS = (
     "architecture",
@@ -52,4 +65,21 @@ def test_documentation_index_links_ticket_020_docs() -> None:
     index = _read_doc("README.md")
 
     for filename in REQUIRED_TICKET_020_DOCS:
+        assert f"({filename})" in index
+
+
+def test_architecture_decision_records_exist_and_use_required_sections() -> None:
+    for filename in REQUIRED_ADRS:
+        path = DECISIONS_DIR / filename
+        assert path.is_file(), f"missing docs/decisions/{filename}"
+        text = path.read_text(encoding="utf-8")
+
+        for section in REQUIRED_ADR_SECTIONS:
+            assert section in text, f"{filename} is missing {section!r}"
+
+
+def test_decision_index_links_required_adrs() -> None:
+    index = (DECISIONS_DIR / "README.md").read_text(encoding="utf-8")
+
+    for filename in REQUIRED_ADRS:
         assert f"({filename})" in index
