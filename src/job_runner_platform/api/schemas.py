@@ -39,6 +39,20 @@ class HealthResponse(ApiSchema):
     environment: str
 
 
+class ReadinessCheckResponse(ApiSchema):
+    """Readiness state for one external dependency."""
+
+    status: Literal["ok", "unavailable"]
+    message: str | None = None
+
+
+class ReadinessResponse(ApiSchema):
+    """Response body for dependency readiness checks."""
+
+    status: Literal["ready", "not_ready"]
+    checks: dict[str, ReadinessCheckResponse]
+
+
 class CreateJobRequest(ApiSchema):
     """Request body for submitting a safe allowlisted demo job."""
 

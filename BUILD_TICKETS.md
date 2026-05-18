@@ -440,7 +440,7 @@ Commit when complete.
 
 ## 013 — Add readiness and dependency checks
 
-Status: TODO
+Status: DONE
 
 Implement:
 

@@ -6,6 +6,7 @@ from typing import Annotated, cast
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from job_runner_platform.database.readiness import DatabaseReadinessCheck
 from job_runner_platform.database.session import (
     build_async_engine,
     build_async_sessionmaker,
@@ -13,7 +14,11 @@ from job_runner_platform.database.session import (
 )
 from job_runner_platform.queues import JobQueue, RedisJobQueue
 from job_runner_platform.repositories import JobRepository
-from job_runner_platform.services import JobService
+from job_runner_platform.services import (
+    JobService,
+    QueueReadinessCheck,
+    ReadinessService,
+)
 from job_runner_platform.settings import Settings
 
 
@@ -63,6 +68,10 @@ def get_job_queue(request: Request) -> JobQueue:
     return queue
 
 
+SessionFactoryDependency = Annotated[
+    async_sessionmaker[AsyncSession],
+    Depends(get_session_factory),
+]
 SessionDependency = Annotated[AsyncSession, Depends(get_session, scope="function")]
 QueueDependency = Annotated[JobQueue, Depends(get_job_queue)]
 
@@ -77,4 +86,20 @@ async def get_job_service(
     return JobService(repository=repository, queue=queue)
 
 
+async def get_readiness_service(
+    session_factory: SessionFactoryDependency,
+    queue: QueueDependency,
+) -> ReadinessService:
+    """Build the readiness service for dependency checks."""
+
+    return ReadinessService(
+        database_check=DatabaseReadinessCheck(session_factory),
+        queue_check=QueueReadinessCheck(queue),
+    )
+
+
 JobServiceDependency = Annotated[JobService, Depends(get_job_service)]
+ReadinessServiceDependency = Annotated[
+    ReadinessService,
+    Depends(get_readiness_service),
+]
