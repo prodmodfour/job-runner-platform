@@ -23,6 +23,7 @@ def test_json_log_formatter_emits_structured_record_with_request_id() -> None:
             args=(),
             exc_info=None,
         )
+        record.__dict__["job_id"] = "job-001"
         RequestIdLogFilter().filter(record)
         payload = json.loads(JsonLogFormatter().format(record))
     finally:
@@ -32,4 +33,5 @@ def test_json_log_formatter_emits_structured_record_with_request_id() -> None:
     assert payload["logger"] == "job_runner_platform.test"
     assert payload["message"] == "health check passed"
     assert payload["request_id"] == "log-test-request-id"
+    assert payload["job_id"] == "job-001"
     assert "timestamp" in payload

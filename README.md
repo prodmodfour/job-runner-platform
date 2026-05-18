@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, and safe built-in demo job handlers. Worker runtime, retries, cancellation handling in workers, leases recovery loops, metrics, Docker Compose, and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims and executes queued jobs. Retries, cancellation handling in workers, leases recovery loops, metrics, Docker Compose, and CI will be added in later tickets.
 
 ## Public-safety constraints
 
@@ -62,7 +62,7 @@ scripts/                   local automation and quality gates
 
 Runtime configuration uses environment variables prefixed with `JOB_RUNNER_`. See `example.env` for public-safe local placeholders.
 
-Implemented app-shell settings:
+Implemented runtime settings:
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
@@ -73,6 +73,9 @@ Implemented app-shell settings:
 | `JOB_RUNNER_DOCS_ENABLED` | `false` | Enables `/docs`, `/redoc`, and `/openapi.json` only when explicitly set to `true`. |
 | `JOB_RUNNER_DATABASE_URL` | `postgresql+asyncpg://localhost:5432/job_runner` | Async SQLAlchemy database URL used by Alembic and repositories. |
 | `JOB_RUNNER_REDIS_URL` | `redis://localhost:6379/0` | Redis URL used by the queue abstraction for job-ID dispatch signals. |
+| `JOB_RUNNER_WORKER_ID` | `local-worker-1` | Worker identity recorded on claimed job leases and worker logs. |
+| `JOB_RUNNER_JOB_LEASE_SECONDS` | `60` | Lease duration assigned when a worker claims a queued job. |
+| `JOB_RUNNER_JOB_POLL_SECONDS` | `1` | Redis polling timeout used by the worker loop. |
 
 The ASGI application factory is `job_runner_platform.api.app:create_app`, and the default app object is `job_runner_platform.api.app:app`.
 
@@ -102,9 +105,25 @@ See [`docs/job-handlers.md`](docs/job-handlers.md) for result shapes and limits.
 
 ## Queue dispatch abstraction
 
-Redis is used only as a dispatch signal for persisted job IDs; PostgreSQL remains the source of truth for job state. The queue abstraction supports enqueue, dequeue/poll, acknowledgement, and readiness checks while hiding Redis calls from future services/workers. Duplicate job-ID messages are tolerated because workers must claim the job through the repository before running it, so an already-claimed or terminal row is safely ignored.
+Redis is used only as a dispatch signal for persisted job IDs; PostgreSQL remains the source of truth for job state. The queue abstraction supports enqueue, dequeue/poll, acknowledgement, and readiness checks while hiding Redis calls from services/workers. Duplicate job-ID messages are tolerated because workers must claim the job through the repository before running it, so an already-claimed or terminal row is safely ignored.
 
 See [`docs/decisions/0002-redis-as-dispatch-signal.md`](docs/decisions/0002-redis-as-dispatch-signal.md) for the design record.
+
+## Worker runtime
+
+The worker CLI is available as `job-runner-worker` or `python -m job_runner_platform.worker`. It polls Redis for job ID dispatch signals, claims queued jobs through the service/repository path, runs only the safe allowlisted built-in handlers, records `succeeded` or `failed` outcomes in PostgreSQL, acknowledges duplicate/obsolete signals safely, and logs lifecycle events with `worker_id` and `job_id` fields.
+
+Local run flow once PostgreSQL and Redis are available:
+
+```bash
+export JOB_RUNNER_DATABASE_URL=postgresql+asyncpg://localhost:5432/job_runner
+export JOB_RUNNER_REDIS_URL=redis://localhost:6379/0
+uv run alembic upgrade head
+uv run job-runner-worker          # long-running worker
+uv run job-runner-worker --once   # process at most one signal, then exit
+```
+
+Shutdown is cooperative: `SIGINT`/`SIGTERM` ask the worker to stop between jobs. If a safe handler is already running, the worker lets it finish and records the outcome before exiting. Retry/dead-letter policy, stale lease recovery, and cooperative cancellation inside running handlers are intentionally left for later tickets.
 
 ## Database migrations
 
@@ -126,7 +145,7 @@ A local PostgreSQL service is not yet provided by this repository; Docker Compos
 - All HTTP responses include `X-Request-ID`; an incoming value is propagated and a UUID is generated when the header is absent.
 - Swagger/ReDoc/OpenAPI routes are disabled by default for safer public-facing defaults.
 
-The job API uses PostgreSQL and Redis through the service, repository, and queue layers. Safe handlers are implemented and unit-tested, but a local Docker Compose stack and worker process are not available yet, so local end-to-end job execution is still future work.
+The job API uses PostgreSQL and Redis through the service, repository, and queue layers. Safe handlers and the worker runtime are implemented and unit-tested, but a local Docker Compose stack is not available yet, so local end-to-end job execution still requires separately managed PostgreSQL and Redis services.
 
 ## Quality gate
 

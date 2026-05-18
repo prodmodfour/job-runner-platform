@@ -5,7 +5,7 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Final
 
 _REQUEST_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "job_runner_request_id",
@@ -13,6 +13,9 @@ _REQUEST_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 REQUEST_ID_HEADER = "X-Request-ID"
+_RESERVED_LOG_RECORD_ATTRIBUTES: Final[frozenset[str]] = frozenset(
+    logging.makeLogRecord({}).__dict__,
+) | frozenset({"asctime", "message", "request_id"})
 
 
 def get_request_id() -> str | None:
@@ -62,7 +65,20 @@ class JsonLogFormatter(logging.Formatter):
         if record.stack_info is not None:
             payload["stack"] = self.formatStack(record.stack_info)
 
+        for key, value in sorted(record.__dict__.items()):
+            if key in _RESERVED_LOG_RECORD_ATTRIBUTES or key.startswith("_"):
+                continue
+            payload[key] = _json_safe_value(value)
+
         return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
+
+def _json_safe_value(value: Any) -> Any:
+    try:
+        json.dumps(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return value
 
 
 def configure_logging(log_level: str) -> None:

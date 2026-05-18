@@ -14,6 +14,12 @@ from job_runner_platform.services.jobs import (
     JobService,
     JobServiceError,
 )
+from job_runner_platform.services.worker import (
+    JobHandlerRunner,
+    JobWorkerService,
+    WorkerProcessOutcome,
+    WorkerProcessResult,
+)
 
 __all__ = [
     "DEFAULT_LIST_LIMIT",
@@ -24,8 +30,12 @@ __all__ = [
     "JobCancellationConflictError",
     "JobCancellationResult",
     "JobCreationResult",
+    "JobHandlerRunner",
     "JobListResult",
     "JobNotFoundError",
     "JobService",
     "JobServiceError",
+    "JobWorkerService",
+    "WorkerProcessOutcome",
+    "WorkerProcessResult",
 ]

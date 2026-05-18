@@ -341,7 +341,7 @@ Commit when complete.
 
 ## 009 — Add worker runtime
 
-Status: TODO
+Status: DONE
 
 Implement a worker process/CLI that:
 

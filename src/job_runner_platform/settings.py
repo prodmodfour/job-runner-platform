@@ -32,6 +32,9 @@ class Settings(BaseSettings):
         min_length=1,
     )
     redis_url: str = Field(default="redis://localhost:6379/0", min_length=1)
+    worker_id: str = Field(default="local-worker-1", min_length=1, max_length=128)
+    job_lease_seconds: float = Field(default=60.0, gt=0.0)
+    job_poll_seconds: float = Field(default=1.0, gt=0.0)
 
     @field_validator("log_level")
     @classmethod

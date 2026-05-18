@@ -2,15 +2,16 @@
 
 ## Current state
 
-Tickets 000 through 008 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, PostgreSQL persistence scaffolding with Alembic migrations, an internal repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, and safe allowlisted built-in demo job handlers.
+Tickets 000 through 009 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, PostgreSQL persistence scaffolding with Alembic migrations, an internal repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe allowlisted built-in demo job handlers, and a worker CLI/runtime for claiming and executing queued jobs.
 
-Ticket 008 added:
+Ticket 009 added:
 
-- A `job_runner_platform.handlers` package with an async handler registry for exactly the allowlisted job types: `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`.
-- Safe handler payload validation, JSON-serializable payload checks, a bounded `sleep` duration, SHA-256 checksum handling over supplied UTF-8 text only, and deterministic demo failure handlers for future retry/dead-letter work.
-- Handler execution/context error types for future worker integration without introducing a worker runtime in this ticket.
-- Unit tests covering each handler, registry coverage, bounded sleep validation, fail-once behaviour, always-fail behaviour, unknown handler rejection, non-JSON payload rejection, and context attempt validation.
-- Handler payload/result documentation in `docs/job-handlers.md`, linked from `docs/README.md` and summarized in `README.md`.
+- A `JobWorkerService` workflow that polls the queue, claims queued jobs through PostgreSQL state transitions, runs only allowlisted built-in handlers, records succeeded/failed outcomes, and safely acknowledges duplicate or obsolete dispatch signals.
+- A worker runtime package with cooperative loop control and `WorkerRuntimeConfig` backed by `JOB_RUNNER_WORKER_ID`, `JOB_RUNNER_JOB_LEASE_SECONDS`, and `JOB_RUNNER_JOB_POLL_SECONDS` settings.
+- A `job-runner-worker` console script plus `python -m job_runner_platform.worker` entry point, including `--once` for local/manual processing and SIGINT/SIGTERM shutdown handling between jobs.
+- Structured worker lifecycle logging with `worker_id`, `job_id`, `job_type`, `attempt`, outcome, and error type fields where applicable.
+- Worker runtime tests covering successful echo execution, duplicate dispatch signal safety, and safe handler failure recording.
+- README local worker run instructions and updated configuration documentation.
 
 ## Quality gates
 
@@ -24,12 +25,13 @@ Latest run:
   - `uv run mypy src tests`
   - `uv run pytest --cov=job_runner_platform --cov-report=term-missing`
 
-Additional validation this cycle:
+Additional validation this cycle before the full gate:
 
-- `uv run ruff check .` — passed after formatting fixes.
+- `uv lock` — completed after adding the worker console script.
+- `uv run ruff check .` — passed.
 - `uv run ruff format --check .` — passed.
 - `uv run mypy src tests` — passed.
-- `uv run pytest -q` — passed (`56 passed`).
+- `uv run pytest -q` — passed (`59 passed`).
 
 ## Public-safety notes
 
@@ -41,15 +43,15 @@ Do not implement arbitrary shell command execution. Jobs must be safe allowliste
 
 ## Latest cycle notes
 
-- Implemented only the safe allowlisted job handlers required by ticket 008; no worker runtime, retry/dead-letter policy, lease recovery, metrics, auth, Docker Compose stack, or CI were introduced.
-- Preserved public-safety constraints: handlers do not run shell commands, subprocesses, containers, user-supplied code, or host filesystem operations.
-- Kept handlers isolated and testable so the future worker can call them after claiming jobs through the repository/service boundary.
-- Documented handler payload shapes and limits without creating the future ADR/runbook tickets early.
+- Implemented only the worker runtime required by ticket 009; retry/dead-letter policy, stale lease recovery, cooperative cancellation inside running handlers, readiness checks, metrics, auth, Docker Compose stack, and CI were not introduced.
+- Preserved public-safety constraints: the worker invokes the built-in handler registry only and does not run shell commands, subprocesses, containers, user-submitted code, or host-level operations.
+- Kept the worker on the intended boundary path: worker runtime -> worker service -> repository/queue -> database/Redis.
+- The worker records handler failures as `failed` for now. Ticket 010 is expected to add retry and dead-letter policy on top of this foundation.
 
 ## Limitations
 
-Safe handlers are implemented and unit-tested, but no worker process exists yet to dequeue, claim, execute, and record job results. The API exposes `/jobs` routes and `/healthz`, but `/readyz`, `/metrics`, worker runtime, retry/dead-letter orchestration, cancellation checks inside handlers/workers, auth, Docker Compose, and CI remain future tickets. Local end-to-end job execution still requires future worker and runtime tickets.
+The worker can claim queued jobs, run safe handlers, and record success/failure, but failed jobs do not retry yet and are not dead-lettered. Stale lease recovery, cancellation checks during running jobs, `/readyz`, `/metrics`, optional auth, Docker Compose, and CI remain future tickets. Local end-to-end execution currently requires separately managed PostgreSQL and Redis services because the Docker Compose stack is not implemented yet.
 
 ## Next recommended ticket
 
-Ticket 009.
+Ticket 010.

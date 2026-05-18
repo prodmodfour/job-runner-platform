@@ -13,6 +13,9 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.44",
 ]
 
+[project.scripts]
+job-runner-worker = "job_runner_platform.worker.cli:main"
+
 [dependency-groups]
 dev = [
     "aiosqlite>=0.22.1",
