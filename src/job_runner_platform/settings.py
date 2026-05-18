@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from job_runner_platform import __version__
 
@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     environment: str = Field(default="local", min_length=1)
     log_level: str = Field(default="INFO", min_length=1)
     docs_enabled: bool = False
+    auth_enabled: bool = False
+    auth_api_keys: Annotated[tuple[str, ...], NoDecode] = Field(
+        default_factory=tuple,
+        repr=False,
+    )
     database_url: str = Field(
         default="postgresql+asyncpg://localhost:5432/job_runner",
         min_length=1,
@@ -47,6 +52,21 @@ class Settings(BaseSettings):
             message = f"log_level must be one of: {', '.join(sorted(allowed_levels))}"
             raise ValueError(message)
         return normalized
+
+    @field_validator("auth_api_keys", mode="before")
+    @classmethod
+    def parse_auth_api_keys(cls, value: object) -> tuple[str, ...]:
+        """Parse comma-separated API keys from environment configuration."""
+
+        if value is None or value == "":
+            return ()
+        if isinstance(value, str):
+            candidates = value.split(",")
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            candidates = [str(item) for item in value]
+        else:
+            raise ValueError("auth_api_keys must be a comma-separated string")
+        return tuple(candidate.strip() for candidate in candidates if candidate.strip())
 
 
 @lru_cache

@@ -493,7 +493,7 @@ Commit when complete.
 
 ## 015 — Add optional API key authentication
 
-Status: TODO
+Status: DONE
 
 Implement optional API key auth for business endpoints.
 

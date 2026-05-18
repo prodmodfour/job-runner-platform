@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, `GET /readyz` dependency checks for PostgreSQL and Redis, `GET /metrics` Prometheus exposition, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. Docker Compose and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, optional API key authentication for business endpoints, `GET /healthz`, `GET /readyz` dependency checks for PostgreSQL and Redis, `GET /metrics` Prometheus exposition, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. Docker Compose and CI will be added in later tickets.
 
 ## Public-safety constraints
 
@@ -71,11 +71,15 @@ Implemented runtime settings:
 | `JOB_RUNNER_ENVIRONMENT` | `local` | Environment label emitted by health responses and logs. |
 | `JOB_RUNNER_LOG_LEVEL` | `INFO` | Root structured logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`). |
 | `JOB_RUNNER_DOCS_ENABLED` | `false` | Enables `/docs`, `/redoc`, and `/openapi.json` only when explicitly set to `true`. |
+| `JOB_RUNNER_AUTH_ENABLED` | `false` | Enables API key authentication for business job endpoints when set to `true`. |
+| `JOB_RUNNER_AUTH_API_KEYS` | empty | Comma-separated list of accepted `X-API-Key` values when API auth is enabled. |
 | `JOB_RUNNER_DATABASE_URL` | `postgresql+asyncpg://localhost:5432/job_runner` | Async SQLAlchemy database URL used by Alembic and repositories. |
 | `JOB_RUNNER_REDIS_URL` | `redis://localhost:6379/0` | Redis URL used by the queue abstraction for job-ID dispatch signals. |
 | `JOB_RUNNER_WORKER_ID` | `local-worker-1` | Worker identity recorded on claimed job leases and worker logs. |
 | `JOB_RUNNER_JOB_LEASE_SECONDS` | `60` | Lease duration assigned when a worker claims a queued job. |
 | `JOB_RUNNER_JOB_POLL_SECONDS` | `1` | Redis polling timeout used by the worker loop. |
+
+Optional API key authentication is disabled by default for local exploration. When `JOB_RUNNER_AUTH_ENABLED=true`, all `/jobs` business endpoints require an `X-API-Key` header that matches one comma-separated value in `JOB_RUNNER_AUTH_API_KEYS`. Missing or invalid keys return `401 Unauthorized`. System endpoints (`/healthz`, `/readyz`, and `/metrics`) remain unprotected so orchestrators and Prometheus can probe them.
 
 The ASGI application factory is `job_runner_platform.api.app:create_app`, and the default app object is `job_runner_platform.api.app:app`.
 
@@ -142,6 +146,7 @@ A local PostgreSQL service is not yet provided by this repository; Docker Compos
 - `GET /healthz` returns liveness metadata for the API process without dependency checks.
 - `GET /readyz` checks PostgreSQL with a minimal readiness query and Redis through the queue abstraction. It returns `200 OK` with `status: ready` when both dependencies are available and `503 Service Unavailable` with per-dependency statuses when either check fails.
 - `GET /metrics` returns Prometheus text exposition for API request, worker polling, queue polling, and job lifecycle metrics.
+- `/jobs` business endpoints are unauthenticated by default. When `JOB_RUNNER_AUTH_ENABLED=true`, they require `X-API-Key` while `/healthz`, `/readyz`, and `/metrics` remain open.
 - `POST /jobs` creates a queued allowlisted job and returns `201 Created`. If an idempotency key replays an existing submission, the response is `200 OK` with `idempotency_replayed: true`.
 - `GET /jobs?limit=50&offset=0&status=queued` lists jobs with bounded pagination and an optional status filter.
 - `GET /jobs/{job_id}` returns one job or a clear `404` when it does not exist.
@@ -149,7 +154,7 @@ A local PostgreSQL service is not yet provided by this repository; Docker Compos
 - All HTTP responses include `X-Request-ID`; an incoming value is propagated and a UUID is generated when the header is absent.
 - Swagger/ReDoc/OpenAPI routes are disabled by default for safer public-facing defaults.
 
-The job API, readiness checks, and metrics instrumentation use PostgreSQL and Redis through service, repository/database, queue, and observability layers. Safe handlers, the worker runtime, retry, dead-letter behaviour, cancellation, stale lease recovery, and Prometheus metric exposition are implemented and unit-tested, but a local Docker Compose stack is not available yet, so local end-to-end job execution still requires separately managed PostgreSQL and Redis services.
+The job API, optional API key authentication, readiness checks, and metrics instrumentation use PostgreSQL and Redis through service, repository/database, queue, and observability layers. Safe handlers, the worker runtime, retry, dead-letter behaviour, cancellation, stale lease recovery, and Prometheus metric exposition are implemented and unit-tested, but a local Docker Compose stack is not available yet, so local end-to-end job execution still requires separately managed PostgreSQL and Redis services.
 
 ## Observability metrics
 

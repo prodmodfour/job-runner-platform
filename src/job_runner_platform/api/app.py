@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
+from job_runner_platform.api.auth import require_api_key
 from job_runner_platform.api.middleware import request_id_middleware
 from job_runner_platform.api.routes.health import router as health_router
 from job_runner_platform.api.routes.jobs import router as jobs_router
@@ -30,7 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved_settings
     app.middleware("http")(request_id_middleware)
     app.include_router(health_router)
-    app.include_router(jobs_router)
+    app.include_router(jobs_router, dependencies=[Depends(require_api_key)])
     app.include_router(metrics_router)
     return app
 
