@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import signal
 from collections.abc import Sequence
 from types import FrameType
@@ -11,6 +12,10 @@ from job_runner_platform.database.session import (
     build_async_sessionmaker,
 )
 from job_runner_platform.logging import configure_logging
+from job_runner_platform.observability import (
+    MetricsHttpServer,
+    start_metrics_http_server,
+)
 from job_runner_platform.queues import RedisJobQueue
 from job_runner_platform.services.worker import JobWorkerService
 from job_runner_platform.settings import Settings, get_settings
@@ -47,8 +52,22 @@ async def _run_worker(*, run_once: bool, settings: Settings) -> int:
         lease_seconds=config.lease_seconds,
     )
     runtime = WorkerRuntime(service=service, config=config)
+    metrics_server: MetricsHttpServer | None = None
 
     try:
+        if settings.worker_metrics_enabled:
+            metrics_server = start_metrics_http_server(
+                host=settings.worker_metrics_host,
+                port=settings.worker_metrics_port,
+            )
+            logging.getLogger(__name__).info(
+                "worker metrics server started",
+                extra={
+                    "worker_id": config.worker_id,
+                    "metrics_host": settings.worker_metrics_host,
+                    "metrics_port": metrics_server.port,
+                },
+            )
         if run_once:
             await runtime.run_once()
         else:
@@ -56,6 +75,8 @@ async def _run_worker(*, run_once: bool, settings: Settings) -> int:
             _install_signal_handlers(stop_event)
             await runtime.run_until_stopped(stop_event)
     finally:
+        if metrics_server is not None:
+            metrics_server.shutdown()
         await queue.close()
         await engine.dispose()
 

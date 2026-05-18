@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, optional API key authentication for business endpoints, `GET /healthz`, `GET /readyz` dependency checks for PostgreSQL and Redis, `GET /metrics` Prometheus exposition, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. A local Docker Compose stack now runs the API, worker, PostgreSQL, Redis, Prometheus, and Grafana services; CI will be added in a later ticket.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, optional API key authentication for business endpoints, `GET /healthz`, `GET /readyz` dependency checks for PostgreSQL and Redis, `GET /metrics` Prometheus exposition, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. A local Docker Compose stack now runs the API, worker, PostgreSQL, Redis, Prometheus, and Grafana services with local scrape configuration, Grafana provisioning, and a basic dashboard; CI will be added in a later ticket.
 
 ## Public-safety constraints
 
@@ -57,7 +57,13 @@ The Compose stack is intended for local portfolio demos only and uses public-saf
 docker compose up --build
 ```
 
-The API container runs Alembic migrations before starting Uvicorn. Once the stack is healthy, the API is available on <http://127.0.0.1:8000>:
+The API container runs Alembic migrations before starting Uvicorn. Once the stack is healthy, local endpoints are available at:
+
+- API: <http://127.0.0.1:8000>
+- Prometheus: <http://127.0.0.1:9090>
+- Grafana: <http://127.0.0.1:3000> with anonymous local viewer access and the provisioned **Job Runner Platform** dashboard
+
+Example API checks:
 
 ```bash
 curl http://127.0.0.1:8000/healthz
@@ -106,6 +112,9 @@ Implemented runtime settings:
 | `JOB_RUNNER_WORKER_ID` | `local-worker-1` | Worker identity recorded on claimed job leases and worker logs. |
 | `JOB_RUNNER_JOB_LEASE_SECONDS` | `60` | Lease duration assigned when a worker claims a queued job. |
 | `JOB_RUNNER_JOB_POLL_SECONDS` | `1` | Redis polling timeout used by the worker loop. |
+| `JOB_RUNNER_WORKER_METRICS_ENABLED` | `false` | Enables the worker's lightweight Prometheus metrics HTTP server when set to `true`. |
+| `JOB_RUNNER_WORKER_METRICS_HOST` | `127.0.0.1` | Bind host for the worker metrics server; Compose overrides this to `0.0.0.0` for Prometheus scraping inside the local network. |
+| `JOB_RUNNER_WORKER_METRICS_PORT` | `8001` | TCP port for the worker metrics server. |
 
 Optional API key authentication is disabled by default for local exploration. When `JOB_RUNNER_AUTH_ENABLED=true`, all `/jobs` business endpoints require an `X-API-Key` header that matches one comma-separated value in `JOB_RUNNER_AUTH_API_KEYS`. Missing or invalid keys return `401 Unauthorized`. System endpoints (`/healthz`, `/readyz`, and `/metrics`) remain unprotected so orchestrators and Prometheus can probe them.
 
@@ -155,6 +164,8 @@ uv run job-runner-worker          # long-running worker
 uv run job-runner-worker --once   # process at most one signal, then exit
 ```
 
+Set `JOB_RUNNER_WORKER_METRICS_ENABLED=true` to expose the worker process metrics endpoint on `JOB_RUNNER_WORKER_METRICS_HOST:JOB_RUNNER_WORKER_METRICS_PORT`. Docker Compose enables this on the internal worker port `8001` so Prometheus can scrape both API and worker processes.
+
 Shutdown is cooperative: `SIGINT`/`SIGTERM` ask the worker to stop between jobs. If a safe handler is already running, the worker lets it finish and records the outcome before exiting. Job cancellation is also cooperative: queued jobs are terminally `cancelled`, running jobs become `cancel_requested`, and handlers that can safely pause (currently `sleep`) check for that request between short async intervals before the worker records the terminal `cancelled` state. On handler failure, jobs are requeued while attempts remain and are marked `dead_lettered` after `max_attempts`. Each worker loop also recovers expired `running` leases: jobs with attempts remaining are requeued and re-signalled, while exhausted jobs are marked `dead_lettered`.
 
 See [`docs/decisions/0004-leases-and-stale-job-recovery.md`](docs/decisions/0004-leases-and-stale-job-recovery.md) for the lease recovery design record.
@@ -197,7 +208,7 @@ The job API, optional API key authentication, readiness checks, and metrics inst
 - `jobs_cancelled_total`
 - `job_duration_seconds`
 
-Additional implemented metrics include `api_requests_total`, `api_request_duration_seconds`, `worker_polls_total`, and `queue_polls_total`.
+Additional implemented metrics include `api_requests_total`, `api_request_duration_seconds`, `worker_polls_total`, and `queue_polls_total`. In Docker Compose, Prometheus scrapes the API at `api:8000/metrics` and the worker at `worker:8001/metrics`; Grafana provisions a Prometheus data source plus a **Job Runner Platform** dashboard. See [`docs/observability.md`](docs/observability.md) for local observability URLs and dashboard notes.
 
 ## Quality gate
 

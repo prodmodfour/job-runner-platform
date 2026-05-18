@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from threading import Thread
 from typing import Final, Protocol
+from wsgiref.simple_server import WSGIServer
 
-from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Histogram
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Histogram,
+    start_http_server,
+)
 from prometheus_client.exposition import generate_latest
 
 PROMETHEUS_REGISTRY: Final[CollectorRegistry] = CollectorRegistry(auto_describe=True)
@@ -74,6 +83,27 @@ _QUEUE_POLLS: Final[Counter] = Counter(
     labelnames=("result",),
     registry=PROMETHEUS_REGISTRY,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsHttpServer:
+    """Handle for a lightweight Prometheus metrics HTTP server."""
+
+    server: WSGIServer
+    thread: Thread
+
+    @property
+    def port(self) -> int:
+        """Return the bound TCP port, including ephemeral port assignments."""
+
+        return int(self.server.server_port)
+
+    def shutdown(self) -> None:
+        """Stop the metrics server and close its listening socket."""
+
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5.0)
 
 
 class MetricsRecorder(Protocol):
@@ -186,3 +216,14 @@ def render_metrics() -> bytes:
     """Render the current Prometheus exposition payload."""
 
     return generate_latest(PROMETHEUS_REGISTRY)
+
+
+def start_metrics_http_server(*, host: str, port: int) -> MetricsHttpServer:
+    """Start a lightweight HTTP server exposing process-local Prometheus metrics."""
+
+    server, thread = start_http_server(
+        port,
+        addr=host,
+        registry=PROMETHEUS_REGISTRY,
+    )
+    return MetricsHttpServer(server=server, thread=thread)

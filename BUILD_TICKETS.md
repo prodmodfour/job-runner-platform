@@ -555,7 +555,7 @@ Commit when complete.
 
 ## 017 — Add Prometheus and Grafana configuration
 
-Status: TODO
+Status: DONE
 
 Implement:
 

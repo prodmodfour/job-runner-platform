@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.request import urlopen
 
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import (
@@ -16,6 +17,7 @@ from job_runner_platform.api.app import create_app
 from job_runner_platform.database.base import Base
 from job_runner_platform.database.session import session_scope
 from job_runner_platform.domain.jobs import JobStatus, JobType
+from job_runner_platform.observability import start_metrics_http_server
 from job_runner_platform.queues import InMemoryJobQueue
 from job_runner_platform.repositories import JobRepository
 from job_runner_platform.services import JobService
@@ -107,6 +109,21 @@ def test_metrics_endpoint_exposes_prometheus_payload_and_key_metric_names() -> N
         assert metric_name in text
     assert "api_requests_total" in text
     assert 'path="/healthz"' in text
+
+
+def test_worker_metrics_http_server_serves_process_metrics() -> None:
+    metrics_server = start_metrics_http_server(host="127.0.0.1", port=0)
+    try:
+        with urlopen(
+            f"http://127.0.0.1:{metrics_server.port}/metrics",
+            timeout=5.0,
+        ) as response:
+            text = response.read().decode("utf-8")
+            assert response.getcode() == 200
+            assert "jobs_created_total" in text
+            assert "worker_polls_total" in text
+    finally:
+        metrics_server.shutdown()
 
 
 def test_job_service_records_created_and_queued_cancellation_metrics(

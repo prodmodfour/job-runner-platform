@@ -2,7 +2,7 @@
 
 ## Current state
 
-Tickets 000 through 016 are complete. The repository now has the initial Python
+Tickets 000 through 017 are complete. The repository now has the initial Python
 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode,
 pytest, pytest-cov, documentation directories, public-safe example
 configuration, a reusable quality gate, a FastAPI application shell, explicit
@@ -14,27 +14,29 @@ workflows, safe allowlisted built-in demo job handlers, a worker CLI/runtime,
 retry/dead-letter behaviour, lease-based stale job recovery, cooperative worker
 cancellation handling, API readiness checks for PostgreSQL and Redis,
 Prometheus metrics exposition, optional API key authentication for business job
-endpoints, and a local Docker Compose stack.
+endpoints, a local Docker Compose stack, and local Prometheus/Grafana
+observability configuration.
 
-Ticket 016 added:
+Ticket 017 added:
 
-- A multi-stage `Dockerfile` that installs locked runtime dependencies with
-  `uv`, includes Alembic migrations, starts the FastAPI app with Uvicorn, runs
-  as a non-root `app` user, and defines a `/healthz` container health check.
-- `docker-compose.yml` with local-only placeholder configuration for `api`,
-  `worker`, `postgres`, `redis`, `prometheus`, and `grafana` services.
-- Compose dependency health checks for PostgreSQL, Redis, the API, and worker
-  process liveness, with loopback-only host port bindings for local use.
-- Automatic Alembic migration execution in the local Compose API container
-  before Uvicorn starts, so `docker compose up --build` can run an end-to-end
-  local stack.
-- A `.dockerignore` to keep virtual environments, caches, local env files, and
-  build artifacts out of the container build context.
-- Runtime `uvicorn[standard]` dependency for the containerized API server.
-- Container configuration tests covering required services, non-root runtime
-  posture, local placeholder environment, health checks, and dependency order.
-- README updates documenting Docker Compose requirements and quick-start
-  commands.
+- `observability/prometheus/prometheus.yml` with local scrape jobs for the API
+  (`api:8000/metrics`) and worker (`worker:8001/metrics`) containers.
+- A lightweight optional worker metrics HTTP server controlled by
+  `JOB_RUNNER_WORKER_METRICS_ENABLED`, `JOB_RUNNER_WORKER_METRICS_HOST`, and
+  `JOB_RUNNER_WORKER_METRICS_PORT`.
+- Docker Compose wiring that enables the worker metrics server on the internal
+  worker port `8001`, mounts Prometheus configuration, mounts Grafana
+  provisioning files, and enables anonymous local Grafana viewer access.
+- Grafana provisioning for a Prometheus data source and a basic **Job Runner
+  Platform** dashboard with panels for job lifecycle counters, API request
+  rate/latency, worker polling outcomes, and job duration.
+- `docs/observability.md` documenting local observability URLs, scrape targets,
+  dashboard coverage, and local limitations.
+- README, runbook, example environment, and docs index updates covering the new
+  observability setup.
+- Tests for Prometheus/Grafana configuration, Docker Compose observability
+  mounts, worker metrics settings, dashboard JSON, and the worker metrics HTTP
+  server.
 
 ## Quality gates
 
@@ -47,13 +49,12 @@ Latest run:
   - `uv run ruff format --check .`
   - `uv run mypy src tests`
   - `uv run pytest --cov=job_runner_platform --cov-report=term-missing`
-    (`85 passed`)
+    (`90 passed`)
 
 Additional validation this cycle before the full gate:
 
 - `docker compose config` — passed.
-- `docker build --check .` — passed.
-- `uv run ruff check . && uv run ruff format --check . && uv run mypy src tests && uv run pytest tests/test_container_config.py -q` — passed (`3 passed`).
+- `uv run ruff check . && uv run ruff format --check . && uv run mypy src tests && uv run pytest tests/test_metrics.py tests/test_observability_config.py tests/test_api_app.py -q` — passed (`15 passed`).
 
 ## Public-safety notes
 
@@ -66,22 +67,24 @@ Do not implement arbitrary shell command execution. Jobs must be safe
 allowlisted demo handlers only.
 
 The Compose stack uses local placeholder values only. The PostgreSQL password
-and Grafana defaults are local development placeholders, not production
-credentials, and the exposed ports bind to `127.0.0.1`.
+and Grafana anonymous viewer configuration are local development/demo settings,
+not a production security baseline, and the exposed host ports bind to
+`127.0.0.1`.
 
 ## Latest cycle notes
 
-- Implemented only the Dockerfile and Docker Compose scope required by ticket
-  016; Prometheus scrape configuration, Grafana provisioning/dashboards, CI,
-  automation guardrails, and broader operations docs were not introduced.
-- Preserved architecture boundaries: the container stack wires existing API,
-  worker, database, and queue components together without moving database or
-  Redis access into routes.
+- Implemented only the Prometheus/Grafana configuration scope required by
+  ticket 017; GitHub Actions CI, automation guardrails, broader architecture and
+  operations docs, ADR completion, smoke/demo scripts, and final README polish
+  remain future tickets.
+- Preserved architecture boundaries: routes remain thin, database access stays
+  in repositories/database helpers, Redis access stays behind queue
+  abstractions, and the worker metrics endpoint exposes only process metrics.
 - Preserved public-safety constraints: no employer/private details, external
   secrets, arbitrary user-submitted commands, subprocess job handlers, or host
   filesystem mutation features were added.
-- The API and worker containers share the same application image; Compose gives
-  each service a fixed command and local environment.
+- Prometheus scrapes separate API and worker processes in Compose so
+  process-local API and worker metrics can both appear in the local dashboard.
 
 ## Limitations
 
@@ -89,14 +92,15 @@ The Docker Compose stack is for local development and portfolio demos only. It
 uses placeholder local credentials and should not be treated as a production
 security baseline. The API container runs Alembic migrations automatically for
 local convenience; production deployments would usually run migrations as an
-explicit release step. Prometheus and Grafana services are present, but custom
-scrape configuration, Grafana provisioning, and dashboards remain future ticket
-017. GitHub Actions CI, automation guardrails, broader documentation, and smoke
-demo scripts remain future tickets. Metrics are process-local; a multi-process
-deployment would need an explicit aggregation strategy later. Readiness checks
-verify PostgreSQL and Redis connectivity only; they do not verify that a worker
-is running.
+explicit release step. The Grafana dashboard is intentionally basic and is not a
+production alerting baseline. Metrics remain process-local; the current Compose
+configuration scrapes one API container and one worker container separately, and
+a multi-process or multi-worker deployment would need deployment-specific
+labels, aggregation, and alerting. GitHub Actions CI, automation guardrails,
+broader documentation, and smoke demo scripts remain future tickets. Readiness
+checks verify PostgreSQL and Redis connectivity only; they do not verify that a
+worker is running.
 
 ## Next recommended ticket
 
-Ticket 017.
+Ticket 018.

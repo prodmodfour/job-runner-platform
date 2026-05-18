@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     worker_id: str = Field(default="local-worker-1", min_length=1, max_length=128)
     job_lease_seconds: float = Field(default=60.0, gt=0.0)
     job_poll_seconds: float = Field(default=1.0, gt=0.0)
+    worker_metrics_enabled: bool = False
+    worker_metrics_host: str = Field(default="127.0.0.1", min_length=1)
+    worker_metrics_port: int = Field(default=8001, ge=1, le=65535)
 
     @field_validator("log_level")
     @classmethod

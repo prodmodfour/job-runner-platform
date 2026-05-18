@@ -1,7 +1,8 @@
 # Runbook
 
-Operational notes will expand as Docker Compose and CI are added. Current local
-end-to-end runs require separately managed PostgreSQL and Redis services.
+Operational notes will expand as CI and broader operations docs are added. The
+Docker Compose stack can run the local end-to-end environment; manual runs still
+require separately managed PostgreSQL and Redis services.
 
 ## Retry and dead-letter handling
 
@@ -46,8 +47,10 @@ Expected metric names include:
 - `job_duration_seconds`
 
 The job-duration histogram measures worker processing time for claimed job
-attempts. A later Prometheus/Grafana ticket will add local scrape and dashboard
-configuration.
+attempts. In Docker Compose, Prometheus scrapes the API metrics endpoint and the
+worker metrics endpoint separately, and Grafana provisions a starter **Job
+Runner Platform** dashboard. See [local observability](observability.md) for the
+local URLs and scrape targets.
 
 ## Cancellation handling
 

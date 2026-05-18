@@ -97,6 +97,9 @@ def test_settings_load_from_job_runner_environment(monkeypatch: MonkeyPatch) -> 
     monkeypatch.setenv("JOB_RUNNER_WORKER_ID", "env-worker-1")
     monkeypatch.setenv("JOB_RUNNER_JOB_LEASE_SECONDS", "45")
     monkeypatch.setenv("JOB_RUNNER_JOB_POLL_SECONDS", "2.5")
+    monkeypatch.setenv("JOB_RUNNER_WORKER_METRICS_ENABLED", "true")
+    monkeypatch.setenv("JOB_RUNNER_WORKER_METRICS_HOST", "0.0.0.0")
+    monkeypatch.setenv("JOB_RUNNER_WORKER_METRICS_PORT", "9101")
 
     settings = Settings()
 
@@ -111,3 +114,6 @@ def test_settings_load_from_job_runner_environment(monkeypatch: MonkeyPatch) -> 
     assert settings.worker_id == "env-worker-1"
     assert settings.job_lease_seconds == 45.0
     assert settings.job_poll_seconds == 2.5
+    assert settings.worker_metrics_enabled is True
+    assert settings.worker_metrics_host == "0.0.0.0"
+    assert settings.worker_metrics_port == 9101
