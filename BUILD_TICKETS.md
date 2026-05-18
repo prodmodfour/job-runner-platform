@@ -241,7 +241,7 @@ Commit when complete.
 
 ## 006 — Add job service for create, get, list, and cancellation
 
-Status: TODO
+Status: DONE
 
 Implement service layer methods:
 
