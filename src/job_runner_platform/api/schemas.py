@@ -27,7 +27,7 @@ from job_runner_platform.domain.jobs import (
 class ApiSchema(BaseModel):
     """Base configuration for public API request and response schemas."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, from_attributes=True)
 
 
 class HealthResponse(ApiSchema):

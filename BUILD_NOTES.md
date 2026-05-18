@@ -2,16 +2,16 @@
 
 ## Current state
 
-Tickets 000 through 006 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, PostgreSQL persistence scaffolding with Alembic migrations, an internal repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, and a job service layer for create/get/list/cancel workflows.
+Tickets 000 through 007 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, PostgreSQL persistence scaffolding with Alembic migrations, an internal repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, and FastAPI job routes for those workflows.
 
-Ticket 006 added:
+Ticket 007 added:
 
-- `job_runner_platform.services.JobService`, which coordinates repository operations with queue dispatch signals while keeping routes and workers free of database/Redis details.
-- Service-layer result objects for job creation, paginated listing, and cancellation outcomes.
-- Service-layer errors for invalid job types/statuses, invalid pagination, missing jobs, and terminal-state cancellation conflicts so future API routes can map them to clear HTTP responses.
-- Safe allowlist validation before persistence, idempotency-key replay that returns the existing job without enqueueing another signal, bounded list pagination, and cancellation behaviour for queued/running jobs.
-- Tests covering job creation/get, idempotency replay, invalid job type rejection, pagination/status filtering, queued cancellation, running cancellation requests, and terminal cancellation conflicts.
-- README updates describing the service layer and current non-exposed API status.
+- Thin FastAPI job routes for `POST /jobs`, `GET /jobs`, `GET /jobs/{job_id}`, and `POST /jobs/{job_id}/cancel`.
+- API dependency wiring that lazily builds the SQLAlchemy session factory and Redis queue, then constructs `JobService` with `JobRepository` so route handlers do not query the database or call Redis directly.
+- Response conversion through the existing Pydantic API schemas, including `from_attributes` support for repository/service job records.
+- HTTP behaviour for `201 Created` on new job submission, `200 OK` on idempotency replay, bounded pagination with optional status filtering, clear `404` responses for missing jobs, and `409 Conflict` for terminal-state cancellation conflicts.
+- API tests covering creation, idempotency replay, listing with pagination/status filter, fetch by ID, missing job handling, cancellation success/conflict/not-found behaviour, and request validation before service calls.
+- README updates documenting the exposed job API surface and current local limitations.
 
 ## Quality gates
 
@@ -42,15 +42,15 @@ Do not implement arbitrary shell command execution. Jobs must be safe allowliste
 
 ## Latest cycle notes
 
-- Implemented only the service layer required by ticket 006; no job API routes, worker runtime, handler execution, readiness endpoint, metrics, Docker Compose stack, or CI were introduced.
-- Kept SQL in repositories and Redis calls behind the queue abstraction. The service depends on narrow repository/queue interfaces and contains the business workflow for creation, idempotency, listing, and cancellation.
-- Queued jobs are cancelled immediately by the service/repository path. Running jobs become `cancel_requested`; worker-side cooperative cancellation remains a future ticket.
+- Implemented only the API routes required by ticket 007; no job handlers, worker runtime, retry/dead-letter logic, readiness endpoint, metrics, auth, Docker Compose stack, or CI were introduced.
+- Preserved the route -> schemas -> services -> repositories -> database/queue boundary. Routes call `JobService` and use Pydantic request/response models; database sessions and Redis queue construction are isolated in API dependency wiring.
+- Job routes expose the already-implemented service workflow. A submitted job is persisted and signalled, but no worker exists yet to execute queued jobs.
 - No arbitrary command execution, subprocess execution, credentials, private details, or employer-specific content were added.
 
 ## Limitations
 
-The API shell still exposes only `/healthz`; job routes, `/readyz`, `/metrics`, worker runtime, auth, Docker Compose, and CI remain future tickets. The service layer is testable and ready for future routes, but it is not yet wired into FastAPI endpoints. Queue dispatch is still only a signal: an existing queued row remains the durable source of truth if a Redis signal is duplicated or lost. Concurrent idempotent submissions rely on the database unique index as the final guard; future API transaction handling can add retry-on-conflict behaviour if needed.
+The API now exposes `/jobs` routes and `/healthz`, but `/readyz`, `/metrics`, worker runtime, job handler execution, auth, Docker Compose, and CI remain future tickets. Local end-to-end job execution still requires future worker and handler tickets. Queue dispatch remains a Redis wake-up signal while PostgreSQL remains the durable source of truth. Concurrent idempotent submissions rely on the database unique index as the final guard; future API transaction handling can add retry-on-conflict behaviour if needed.
 
 ## Next recommended ticket
 
-Ticket 007.
+Ticket 008.

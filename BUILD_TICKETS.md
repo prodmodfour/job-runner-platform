@@ -281,7 +281,7 @@ Commit when complete.
 
 ## 007 — Add API routes for jobs
 
-Status: TODO
+Status: DONE
 
 Implement routes:
 
