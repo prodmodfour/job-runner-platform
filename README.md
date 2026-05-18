@@ -1,3 +1,8 @@
+![CI](https://github.com/prodmodfour/job-runner-platform/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-green)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-source%20of%20truth-blue)
+![Redis](https://img.shields.io/badge/Redis-dispatch%20signal-red)
 # Job Runner Platform
 
 **A production-style FastAPI, PostgreSQL, Redis, and worker-based background job platform built as a public-safe backend/platform engineering portfolio project.**
