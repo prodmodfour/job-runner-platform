@@ -2,7 +2,7 @@
 
 ## Current state
 
-Tickets 000, 001, 002, and 003 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, and PostgreSQL persistence scaffolding with Alembic migrations.
+Tickets 000, 001, 002, 003, and 004 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, PostgreSQL persistence scaffolding with Alembic migrations, and an internal repository layer for job persistence/state transitions.
 
 Ticket 001 added:
 
@@ -33,6 +33,14 @@ Ticket 003 added:
 - Tests for database metadata, PostgreSQL DDL compilation, async engine/session factory setup, and migration file presence.
 - README updates for database configuration and Alembic usage.
 
+Ticket 004 added:
+
+- `job_runner_platform.repositories.JobRepository`, keeping SQLAlchemy reads/writes inside the repository layer.
+- Repository methods for job creation, fetch by ID, list with pagination/status filtering, idempotency key lookup, cancellation requests, queued job claiming, completion, failure, dead-lettering, requeueing, and stale leased job lookup.
+- Safe state-transition behaviour for duplicate claims, terminal cancellation requests, lease metadata, attempts increments on claim, result/error persistence, and retry/recovery requeue support.
+- Async repository tests using a local SQLite database through SQLAlchemy plus existing PostgreSQL DDL/migration coverage; `aiosqlite` is now a dev dependency for these tests.
+- README updates noting the internal repository layer and that job routes remain future work.
+
 ## Quality gates
 
 Latest run:
@@ -47,7 +55,8 @@ Latest run:
 
 Additional validation this cycle:
 
-- `uv run alembic upgrade head --sql` — passed without requiring a live database connection.
+- `uv run pytest tests/test_job_repository.py -q` — passed.
+- `uv run ruff check . && uv run ruff format --check . && uv run pytest -q` — passed.
 
 ## Public-safety notes
 
@@ -59,15 +68,15 @@ Do not implement arbitrary shell command execution. Jobs must be safe allowliste
 
 ## Latest cycle notes
 
-- Added PostgreSQL schema/model and Alembic migration scaffolding only; no repositories, job routes, Redis queueing, worker runtime, or handler execution were introduced in this ticket.
-- Kept database access isolated under the database package for future repository use.
-- The jobs table stores allowlisted handler names and explicit lifecycle statuses as constrained strings rather than arbitrary commands or executable payloads.
+- Added only the repository layer required by ticket 004; no Redis queueing, services, job routes, worker runtime, handler execution, readiness checks, or metrics were introduced.
+- Kept database access isolated below future services so routes can remain thin when added later.
+- Claiming uses repository-managed row locking where the database supports it and re-checks explicit job status so duplicate dispatch signals can be ignored safely by future workers.
 - No arbitrary command execution, subprocess execution, credentials, private details, or employer-specific content were added.
 
 ## Limitations
 
-The API shell still exposes only `/healthz`; `/readyz`, `/metrics`, job routes, repository methods, Redis queueing, worker runtime, auth, Docker Compose, and CI remain future tickets. A local PostgreSQL service is not yet provided by the repository, so applying migrations requires an externally available local PostgreSQL instance until Docker Compose is added.
+The API shell still exposes only `/healthz`; `/readyz`, `/metrics`, job routes, service methods, Redis queueing, worker runtime, auth, Docker Compose, and CI remain future tickets. Repository behaviour is covered with async SQLAlchemy tests against a local SQLite database so the quality gate remains self-contained before Docker Compose exists; live PostgreSQL integration can be expanded once the local stack and CI service container are added.
 
 ## Next recommended ticket
 
-Ticket 004.
+Ticket 005.
