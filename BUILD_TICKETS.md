@@ -574,7 +574,7 @@ Commit when complete.
 
 ## 018 — Add GitHub Actions CI
 
-Status: TODO
+Status: DONE
 
 Implement `.github/workflows/ci.yml`.
 

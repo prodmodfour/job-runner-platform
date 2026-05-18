@@ -2,7 +2,7 @@
 
 ## Current state
 
-Tickets 000 through 017 are complete. The repository now has the initial Python
+Tickets 000 through 018 are complete. The repository now has the initial Python
 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode,
 pytest, pytest-cov, documentation directories, public-safe example
 configuration, a reusable quality gate, a FastAPI application shell, explicit
@@ -14,29 +14,21 @@ workflows, safe allowlisted built-in demo job handlers, a worker CLI/runtime,
 retry/dead-letter behaviour, lease-based stale job recovery, cooperative worker
 cancellation handling, API readiness checks for PostgreSQL and Redis,
 Prometheus metrics exposition, optional API key authentication for business job
-endpoints, a local Docker Compose stack, and local Prometheus/Grafana
-observability configuration.
+endpoints, a local Docker Compose stack, local Prometheus/Grafana observability
+configuration, and GitHub Actions CI.
 
-Ticket 017 added:
+Ticket 018 added:
 
-- `observability/prometheus/prometheus.yml` with local scrape jobs for the API
-  (`api:8000/metrics`) and worker (`worker:8001/metrics`) containers.
-- A lightweight optional worker metrics HTTP server controlled by
-  `JOB_RUNNER_WORKER_METRICS_ENABLED`, `JOB_RUNNER_WORKER_METRICS_HOST`, and
-  `JOB_RUNNER_WORKER_METRICS_PORT`.
-- Docker Compose wiring that enables the worker metrics server on the internal
-  worker port `8001`, mounts Prometheus configuration, mounts Grafana
-  provisioning files, and enables anonymous local Grafana viewer access.
-- Grafana provisioning for a Prometheus data source and a basic **Job Runner
-  Platform** dashboard with panels for job lifecycle counters, API request
-  rate/latency, worker polling outcomes, and job duration.
-- `docs/observability.md` documenting local observability URLs, scrape targets,
-  dashboard coverage, and local limitations.
-- README, runbook, example environment, and docs index updates covering the new
-  observability setup.
-- Tests for Prometheus/Grafana configuration, Docker Compose observability
-  mounts, worker metrics settings, dashboard JSON, and the worker metrics HTTP
-  server.
+- `.github/workflows/ci.yml` with a Python 3.12 GitHub Actions quality job.
+- A PostgreSQL 16 service container for Alembic migration validation.
+- CI steps for shell syntax checks, optional public-safety guardrail scripts
+  when present, optional architecture/layering guardrail scripts when present,
+  `uv sync --locked --all-groups`, Ruff linting, Ruff format checks, mypy,
+  `docker compose config`, `alembic upgrade head`, and pytest with coverage.
+- Tests in `tests/test_ci_workflow.py` that assert the workflow includes the
+  required CI coverage and PostgreSQL service configuration.
+- README updates documenting the new CI workflow and how it extends the local
+  quality gate.
 
 ## Quality gates
 
@@ -49,12 +41,12 @@ Latest run:
   - `uv run ruff format --check .`
   - `uv run mypy src tests`
   - `uv run pytest --cov=job_runner_platform --cov-report=term-missing`
-    (`90 passed`)
+    (`93 passed`)
 
-Additional validation this cycle before the full gate:
+Additional validation this cycle:
 
+- `uv run pytest tests/test_ci_workflow.py -q` — passed (`3 passed`).
 - `docker compose config` — passed.
-- `uv run ruff check . && uv run ruff format --check . && uv run mypy src tests && uv run pytest tests/test_metrics.py tests/test_observability_config.py tests/test_api_app.py -q` — passed (`15 passed`).
 
 ## Public-safety notes
 
@@ -66,25 +58,22 @@ non-public architecture, or anything implying employer endorsement.
 Do not implement arbitrary shell command execution. Jobs must be safe
 allowlisted demo handlers only.
 
-The Compose stack uses local placeholder values only. The PostgreSQL password
-and Grafana anonymous viewer configuration are local development/demo settings,
-not a production security baseline, and the exposed host ports bind to
-`127.0.0.1`.
+The Compose stack and CI PostgreSQL service use local placeholder values only.
+They are development/demo settings, not a production security baseline.
 
 ## Latest cycle notes
 
-- Implemented only the Prometheus/Grafana configuration scope required by
-  ticket 017; GitHub Actions CI, automation guardrails, broader architecture and
-  operations docs, ADR completion, smoke/demo scripts, and final README polish
-  remain future tickets.
-- Preserved architecture boundaries: routes remain thin, database access stays
-  in repositories/database helpers, Redis access stays behind queue
-  abstractions, and the worker metrics endpoint exposes only process metrics.
+- Implemented only the GitHub Actions CI scope required by ticket 018;
+  automation guardrail scripts, broader architecture and operations docs, ADR
+  completion, smoke/demo scripts, and final README polish remain future tickets.
+- Preserved architecture boundaries: no route, service, repository, queue,
+  worker, or handler implementation code changed for this CI-only ticket.
 - Preserved public-safety constraints: no employer/private details, external
   secrets, arbitrary user-submitted commands, subprocess job handlers, or host
   filesystem mutation features were added.
-- Prometheus scrapes separate API and worker processes in Compose so
-  process-local API and worker metrics can both appear in the local dashboard.
+- The CI workflow conditionally runs guardrail scripts if they exist, so ticket
+  019 can add the concrete public-safety and architecture checks without
+  changing the CI contract substantially.
 
 ## Limitations
 
@@ -96,11 +85,11 @@ explicit release step. The Grafana dashboard is intentionally basic and is not a
 production alerting baseline. Metrics remain process-local; the current Compose
 configuration scrapes one API container and one worker container separately, and
 a multi-process or multi-worker deployment would need deployment-specific
-labels, aggregation, and alerting. GitHub Actions CI, automation guardrails,
-broader documentation, and smoke demo scripts remain future tickets. Readiness
-checks verify PostgreSQL and Redis connectivity only; they do not verify that a
-worker is running.
+labels, aggregation, and alerting. Guardrail scripts are still placeholders in
+CI until ticket 019 adds them. Broader documentation and smoke demo scripts
+remain future tickets. Readiness checks verify PostgreSQL and Redis connectivity
+only; they do not verify that a worker is running.
 
 ## Next recommended ticket
 
-Ticket 018.
+Ticket 019.
