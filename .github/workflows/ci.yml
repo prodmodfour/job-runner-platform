@@ -59,41 +59,11 @@ jobs:
             bash -n "$script"
           done
 
-      - name: Run public-safety guardrail if present
-        run: |
-          set -euo pipefail
-          ran_guardrail=false
-          for script in \
-            scripts/check-public-safety.sh \
-            scripts/check-private-terms.sh \
-            scripts/public-safety-check.sh
-          do
-            if [[ -f "$script" ]]; then
-              bash "$script"
-              ran_guardrail=true
-            fi
-          done
-          if [[ "$ran_guardrail" == "false" ]]; then
-            echo "No public-safety guardrail script is present yet."
-          fi
+      - name: Run public-safety guardrail
+        run: bash scripts/check-public-safety.sh
 
-      - name: Run architecture guardrail if present
-        run: |
-          set -euo pipefail
-          ran_guardrail=false
-          for script in \
-            scripts/check-architecture-boundaries.sh \
-            scripts/check-layering.sh \
-            scripts/architecture-layering-check.sh
-          do
-            if [[ -f "$script" ]]; then
-              bash "$script"
-              ran_guardrail=true
-            fi
-          done
-          if [[ "$ran_guardrail" == "false" ]]; then
-            echo "No architecture guardrail script is present yet."
-          fi
+      - name: Run architecture boundary guardrail
+        run: bash scripts/check-architecture-boundaries.sh
 
       - name: Install dependencies
         run: uv sync --locked --all-groups

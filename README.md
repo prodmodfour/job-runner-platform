@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, optional API key authentication for business endpoints, `GET /healthz`, `GET /readyz` dependency checks for PostgreSQL and Redis, `GET /metrics` Prometheus exposition, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. A local Docker Compose stack runs the API, worker, PostgreSQL, Redis, Prometheus, and Grafana services with local scrape configuration, Grafana provisioning, and a basic dashboard. GitHub Actions CI mirrors the local quality checks and validates Docker Compose plus Alembic migrations against a PostgreSQL service container.
+The repository now includes the initial Python package skeleton, public-safety and architecture guardrail scripts, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, optional API key authentication for business endpoints, `GET /healthz`, `GET /readyz` dependency checks for PostgreSQL and Redis, `GET /metrics` Prometheus exposition, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. A local Docker Compose stack runs the API, worker, PostgreSQL, Redis, Prometheus, and Grafana services with local scrape configuration, Grafana provisioning, and a basic dashboard. GitHub Actions CI mirrors the local quality checks, runs the guardrails, and validates Docker Compose plus Alembic migrations against a PostgreSQL service container.
 
 ## Public-safety constraints
 
@@ -215,10 +215,14 @@ Additional implemented metrics include `api_requests_total`, `api_request_durati
 `scripts/quality-gate.sh` currently runs:
 
 - shell syntax checks for repository scripts
+- `scripts/check-public-safety.sh` for obvious public-safety risks such as real-looking secrets, accidental `.env` files, internal hostnames, and locally configured forbidden private terms
+- `scripts/check-architecture-boundaries.sh` for obvious route-to-database, route-to-repository, route-to-queue, and route-to-Redis boundary violations
 - `uv sync`
 - Ruff lint checks
 - Ruff format checks
 - mypy in strict mode
 - pytest with coverage
 
-GitHub Actions CI is defined in `.github/workflows/ci.yml`. It uses Python 3.12, installs dependencies with `uv sync --locked --all-groups`, runs shell syntax checks, runs optional guardrail scripts when they are present, validates `docker compose config`, applies Alembic migrations against a PostgreSQL service container, and runs the same Ruff, mypy, and pytest checks.
+Private/employer-specific term checks can be configured locally with the ignored `.public-safety-forbidden-terms` or `.public-safety-denylist` file, or via the `JOB_RUNNER_PUBLIC_SAFETY_FORBIDDEN_TERMS` environment variable. Do not commit private terms.
+
+GitHub Actions CI is defined in `.github/workflows/ci.yml`. It uses Python 3.12, installs dependencies with `uv sync --locked --all-groups`, runs shell syntax checks, runs both guardrail scripts, validates `docker compose config`, applies Alembic migrations against a PostgreSQL service container, and runs the same Ruff, mypy, and pytest checks.

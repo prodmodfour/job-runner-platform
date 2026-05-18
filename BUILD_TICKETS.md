@@ -601,7 +601,7 @@ Commit when complete.
 
 ## 019 — Add automation guardrails
 
-Status: TODO
+Status: DONE
 
 Add scripts similar in spirit to:
 

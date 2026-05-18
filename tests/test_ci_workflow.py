@@ -32,7 +32,7 @@ def test_ci_workflow_runs_required_quality_commands() -> None:
         assert command in workflow
 
 
-def test_ci_workflow_includes_postgres_and_optional_guardrail_steps() -> None:
+def test_ci_workflow_includes_postgres_and_required_guardrail_steps() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
 
     assert "postgres:16-alpine" in workflow
@@ -45,7 +45,7 @@ def test_ci_workflow_includes_postgres_and_optional_guardrail_steps() -> None:
         "postgresql+asyncpg://job_runner:job_runner@localhost:5432/job_runner"
         in workflow
     )
-    assert "Run public-safety guardrail if present" in workflow
-    assert "scripts/check-public-safety.sh" in workflow
-    assert "Run architecture guardrail if present" in workflow
-    assert "scripts/check-architecture-boundaries.sh" in workflow
+    assert "Run public-safety guardrail" in workflow
+    assert "bash scripts/check-public-safety.sh" in workflow
+    assert "Run architecture boundary guardrail" in workflow
+    assert "bash scripts/check-architecture-boundaries.sh" in workflow

@@ -18,11 +18,13 @@ htmlcov/
 .venv/
 venv/
 
-# Local environment files
+# Local environment and guardrail files
 .env
 .env.*
 !.env.example
 !example.env
+.public-safety-denylist
+.public-safety-forbidden-terms
 
 # Build artifacts
 build/

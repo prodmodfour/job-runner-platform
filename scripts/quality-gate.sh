@@ -10,6 +10,12 @@ for script in scripts/*.sh; do
   bash -n "$script"
 done
 
+echo "== public-safety guardrail =="
+bash scripts/check-public-safety.sh
+
+echo "== architecture boundary guardrail =="
+bash scripts/check-architecture-boundaries.sh
+
 echo "== uv sync =="
 if [[ -f uv.lock ]]; then
   uv sync --locked --all-groups
