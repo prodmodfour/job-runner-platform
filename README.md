@@ -282,3 +282,7 @@ Private forbidden-term checks can be configured locally with ignored files such 
 - Worker leases do not heartbeat or extend during work. Demo handlers are bounded, so `JOB_RUNNER_JOB_LEASE_SECONDS` should be longer than expected handler runtime.
 - Priority is persisted and validated, but current claiming is primarily FIFO-by-dispatch signal and row state.
 - Optional API key auth is lightweight and intended only for local/portfolio demonstration.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
