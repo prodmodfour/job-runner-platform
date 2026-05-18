@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, and explicit job domain/API schemas. PostgreSQL persistence, Redis dispatch, worker runtime, retries, cancellation, leases, metrics, Docker Compose, and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, and the initial PostgreSQL jobs table model plus Alembic migration. Repository methods, Redis dispatch, worker runtime, retries, cancellation, leases, metrics, Docker Compose, and CI will be added in later tickets.
 
 ## Public-safety constraints
 
@@ -71,6 +71,7 @@ Implemented app-shell settings:
 | `JOB_RUNNER_ENVIRONMENT` | `local` | Environment label emitted by health responses and logs. |
 | `JOB_RUNNER_LOG_LEVEL` | `INFO` | Root structured logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`). |
 | `JOB_RUNNER_DOCS_ENABLED` | `false` | Enables `/docs`, `/redoc`, and `/openapi.json` only when explicitly set to `true`. |
+| `JOB_RUNNER_DATABASE_URL` | `postgresql+asyncpg://localhost:5432/job_runner` | Async SQLAlchemy database URL used by Alembic and future repositories. |
 
 The ASGI application factory is `job_runner_platform.api.app:create_app`, and the default app object is `job_runner_platform.api.app:app`.
 
@@ -78,7 +79,17 @@ The ASGI application factory is `job_runner_platform.api.app:create_app`, and th
 
 The job schema layer defines the future API contract for safe demo jobs. Supported job types are allowlisted values only: `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`. Job statuses are explicit: `queued`, `running`, `succeeded`, `failed`, `cancel_requested`, `cancelled`, and `dead_lettered`.
 
-Job request/response schemas cover creation, detail views, list pages, cancellation responses, idempotency keys, attempts/max attempts, JSON payload/result fields, errors, timestamps, and lease metadata. Job routes are not exposed until a later ticket adds services, persistence, and queueing.
+Job request/response schemas cover creation, detail views, list pages, cancellation responses, idempotency keys, attempts/max attempts, JSON payload/result fields, errors, timestamps, and lease metadata. The PostgreSQL `jobs` table mirrors those fields, with indexes for status, creation time, idempotency keys, and lease expiry. Job routes are not exposed until a later ticket adds repositories, services, and queueing.
+
+## Database migrations
+
+Alembic is configured at `alembic.ini` with migration scripts in `migrations/`. The initial revision creates the PostgreSQL source-of-truth `jobs` table.
+
+```bash
+JOB_RUNNER_DATABASE_URL=postgresql+asyncpg://localhost:5432/job_runner uv run alembic upgrade head
+```
+
+A local PostgreSQL service is not yet provided by this repository; Docker Compose arrives in a later ticket.
 
 ## Current API shell
 

@@ -2,7 +2,7 @@
 
 ## Current state
 
-Tickets 000, 001, and 002 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, and explicit job domain/API schemas.
+Tickets 000, 001, 002, and 003 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, and PostgreSQL persistence scaffolding with Alembic migrations.
 
 Ticket 001 added:
 
@@ -23,6 +23,16 @@ Ticket 002 added:
 - Schema tests covering safe and unsafe job types plus response validation.
 - README notes for the current job schema contract.
 
+Ticket 003 added:
+
+- Runtime dependencies for SQLAlchemy asyncio, asyncpg, and Alembic.
+- `JOB_RUNNER_DATABASE_URL` settings support with a public-safe local PostgreSQL placeholder default.
+- A repository-friendly database package under `src/job_runner_platform/database/` with declarative metadata, a `JobModel`, async engine/sessionmaker helpers, and a transactional session scope helper.
+- A PostgreSQL `jobs` table model with UUID primary key, allowlisted job type/status check constraints, JSON payload/result fields, attempts/max attempts, idempotency key, lease fields, timestamps, priority, and useful status/created/idempotency/lease indexes.
+- Alembic configuration at `alembic.ini`, async migration environment at `migrations/env.py`, and initial revision `0001_create_jobs_table`.
+- Tests for database metadata, PostgreSQL DDL compilation, async engine/session factory setup, and migration file presence.
+- README updates for database configuration and Alembic usage.
+
 ## Quality gates
 
 Latest run:
@@ -35,6 +45,10 @@ Latest run:
   - `uv run mypy src tests`
   - `uv run pytest --cov=job_runner_platform --cov-report=term-missing`
 
+Additional validation this cycle:
+
+- `uv run alembic upgrade head --sql` — passed without requiring a live database connection.
+
 ## Public-safety notes
 
 This project is an independent public portfolio project.
@@ -45,15 +59,15 @@ Do not implement arbitrary shell command execution. Jobs must be safe allowliste
 
 ## Latest cycle notes
 
-- Added domain/schema-only job modeling; no persistence, Redis, worker runtime, or job routes were introduced in this ticket.
-- Restricted job type validation to the safe built-in demo handler names: `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`.
-- Kept route boundaries unchanged; existing routes remain thin and do not call databases or Redis.
-- No arbitrary command execution, subprocess execution, credentials, or private details were added.
+- Added PostgreSQL schema/model and Alembic migration scaffolding only; no repositories, job routes, Redis queueing, worker runtime, or handler execution were introduced in this ticket.
+- Kept database access isolated under the database package for future repository use.
+- The jobs table stores allowlisted handler names and explicit lifecycle statuses as constrained strings rather than arbitrary commands or executable payloads.
+- No arbitrary command execution, subprocess execution, credentials, private details, or employer-specific content were added.
 
 ## Limitations
 
-The API shell still exposes only `/healthz`; `/readyz`, `/metrics`, job routes, PostgreSQL persistence, Redis queueing, worker runtime, auth, Docker Compose, and CI remain future tickets.
+The API shell still exposes only `/healthz`; `/readyz`, `/metrics`, job routes, repository methods, Redis queueing, worker runtime, auth, Docker Compose, and CI remain future tickets. A local PostgreSQL service is not yet provided by the repository, so applying migrations requires an externally available local PostgreSQL instance until Docker Compose is added.
 
 ## Next recommended ticket
 
-Ticket 003.
+Ticket 004.
