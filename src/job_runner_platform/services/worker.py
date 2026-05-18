@@ -47,7 +47,8 @@ class WorkerProcessOutcome(StrEnum):
     NO_MESSAGE = "no_message"
     CLAIM_SKIPPED = "claim_skipped"
     SUCCEEDED = "succeeded"
-    FAILED = "failed"
+    RETRIED = "retried"
+    DEAD_LETTERED = "dead_lettered"
     RECORD_SKIPPED = "record_skipped"
 
 
@@ -67,6 +68,7 @@ class _ClaimedJob:
     job_type: JobType
     payload: JobPayload
     attempt: int
+    max_attempts: int
 
 
 class JobWorkerService:
@@ -227,7 +229,21 @@ class JobWorkerService:
         exc: Exception,
     ) -> WorkerProcessResult:
         error_message = _safe_error_message(exc)
-        stored_status = await self._record_failure(claimed_job.id, error_message)
+        attempts_remaining = claimed_job.attempt < claimed_job.max_attempts
+        if attempts_remaining:
+            stored_status = await self._record_retry(claimed_job.id, error_message)
+            if stored_status is not None:
+                await self._queue.enqueue(claimed_job.id)
+            outcome = WorkerProcessOutcome.RETRIED
+            log_message = "job failed; retry scheduled"
+        else:
+            stored_status = await self._record_dead_letter(
+                claimed_job.id,
+                error_message,
+            )
+            outcome = WorkerProcessOutcome.DEAD_LETTERED
+            log_message = "job dead-lettered after exhausting attempts"
+
         await self._queue.acknowledge(claimed_job.id)
         if stored_status is None:
             self._logger.warning(
@@ -246,37 +262,53 @@ class JobWorkerService:
             )
 
         self._logger.warning(
-            "job failed",
+            log_message,
             extra={
                 "worker_id": self._worker_id,
                 "job_id": str(claimed_job.id),
                 "job_type": claimed_job.job_type.value,
                 "attempt": claimed_job.attempt,
-                "worker_outcome": WorkerProcessOutcome.FAILED.value,
+                "max_attempts": claimed_job.max_attempts,
+                "worker_outcome": outcome.value,
                 "error_type": exc.__class__.__name__,
             },
         )
         return WorkerProcessResult(
-            outcome=WorkerProcessOutcome.FAILED,
+            outcome=outcome,
             job_id=claimed_job.id,
             job_status=stored_status,
             error_message=error_message,
         )
 
-    async def _record_failure(
+    async def _record_retry(
         self,
         job_id: JobId,
         error_message: str,
     ) -> JobStatus | None:
         async with session_scope(self._session_factory) as session:
             repository = JobRepository(session)
-            failed = await repository.fail_job(
+            requeued = await repository.requeue_job(
                 job_id=job_id,
                 error_message=error_message,
             )
-            if failed is None:
+            if requeued is None:
                 return None
-            return JobStatus(failed.status)
+            return JobStatus(requeued.status)
+
+    async def _record_dead_letter(
+        self,
+        job_id: JobId,
+        error_message: str,
+    ) -> JobStatus | None:
+        async with session_scope(self._session_factory) as session:
+            repository = JobRepository(session)
+            dead_lettered = await repository.mark_dead_lettered(
+                job_id=job_id,
+                error_message=error_message,
+            )
+            if dead_lettered is None:
+                return None
+            return JobStatus(dead_lettered.status)
 
 
 def _snapshot_claimed_job(job: JobModel) -> _ClaimedJob:
@@ -285,6 +317,7 @@ def _snapshot_claimed_job(job: JobModel) -> _ClaimedJob:
         job_type=JobType(job.job_type),
         payload=dict(job.payload),
         attempt=job.attempts,
+        max_attempts=job.max_attempts,
     )
 
 

@@ -12,10 +12,15 @@ from sqlalchemy.ext.asyncio import (
 
 from job_runner_platform.database.base import Base
 from job_runner_platform.database.session import session_scope
-from job_runner_platform.domain.jobs import JobStatus, JobType
+from job_runner_platform.domain.jobs import JobPayload, JobResult, JobStatus, JobType
+from job_runner_platform.handlers import JobHandlerContext
 from job_runner_platform.queues import InMemoryJobQueue
 from job_runner_platform.repositories import JobRepository
-from job_runner_platform.services.worker import JobWorkerService, WorkerProcessOutcome
+from job_runner_platform.services.worker import (
+    MAX_RECORDED_ERROR_MESSAGE_LENGTH,
+    JobWorkerService,
+    WorkerProcessOutcome,
+)
 from job_runner_platform.worker import WorkerRuntime, WorkerRuntimeConfig
 
 
@@ -104,47 +109,227 @@ async def _exercise_worker_duplicate_signal_safety(tmp_path: Path) -> None:
         await engine.dispose()
 
 
-def test_worker_runtime_records_handler_failure(tmp_path: Path) -> None:
-    asyncio.run(_exercise_worker_failure_path(tmp_path))
+def test_worker_runtime_retries_fail_once_job_then_succeeds(tmp_path: Path) -> None:
+    asyncio.run(_exercise_worker_fail_once_retry_success(tmp_path))
 
 
-async def _exercise_worker_failure_path(tmp_path: Path) -> None:
+async def _exercise_worker_fail_once_retry_success(tmp_path: Path) -> None:
     engine, session_factory = await _build_sqlite_session_factory(tmp_path)
     try:
         queue = InMemoryJobQueue()
         async with session_scope(session_factory) as session:
             repository = JobRepository(session)
-            job = await repository.create_job(job_type=JobType.ALWAYS_FAIL)
+            job = await repository.create_job(job_type=JobType.FAIL_ONCE)
             job_id = job.id
             await queue.enqueue(job_id)
 
         runtime = _build_runtime(
             session_factory=session_factory,
             queue=queue,
-            worker_id="worker-failure",
+            worker_id="worker-fail-once",
         )
 
-        result = await runtime.run_once()
+        first_result = await runtime.run_once()
 
-        assert result.outcome is WorkerProcessOutcome.FAILED
-        assert result.job_id == job_id
-        assert result.job_status is JobStatus.FAILED
-        assert result.error_message is not None
-        assert "always_fail intentionally failed" in result.error_message
+        assert first_result.outcome is WorkerProcessOutcome.RETRIED
+        assert first_result.job_id == job_id
+        assert first_result.job_status is JobStatus.QUEUED
+        assert first_result.error_message is not None
+        assert "fail_once intentionally failed" in first_result.error_message
+        assert queue.pending_count == 1
+
+        async with session_factory() as session:
+            stored_after_retry = await JobRepository(session).get_job_by_id(job_id)
+            assert stored_after_retry is not None
+            assert stored_after_retry.status == JobStatus.QUEUED.value
+            assert stored_after_retry.result is None
+            assert stored_after_retry.error_message is not None
+            assert "fail_once intentionally failed" in stored_after_retry.error_message
+            assert stored_after_retry.attempts == 1
+            assert stored_after_retry.lease_owner is None
+            assert stored_after_retry.lease_expires_at is None
+            assert stored_after_retry.started_at is None
+            assert stored_after_retry.finished_at is None
+
+        second_result = await runtime.run_once()
+
+        assert second_result.outcome is WorkerProcessOutcome.SUCCEEDED
+        assert second_result.job_id == job_id
+        assert second_result.job_status is JobStatus.SUCCEEDED
+        assert queue.pending_count == 0
+
+        async with session_factory() as session:
+            stored_after_success = await JobRepository(session).get_job_by_id(job_id)
+            assert stored_after_success is not None
+            assert stored_after_success.status == JobStatus.SUCCEEDED.value
+            assert stored_after_success.result == {"failed_once": True, "attempt": 2}
+            assert stored_after_success.error_message is None
+            assert stored_after_success.attempts == 2
+            assert stored_after_success.lease_owner is None
+            assert stored_after_success.lease_expires_at is None
+            assert stored_after_success.started_at is not None
+            assert stored_after_success.finished_at is not None
+    finally:
+        await engine.dispose()
+
+
+def test_worker_runtime_dead_letters_always_fail_after_max_attempts(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_exercise_worker_always_fail_dead_letter(tmp_path))
+
+
+async def _exercise_worker_always_fail_dead_letter(tmp_path: Path) -> None:
+    engine, session_factory = await _build_sqlite_session_factory(tmp_path)
+    try:
+        queue = InMemoryJobQueue()
+        async with session_scope(session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.create_job(
+                job_type=JobType.ALWAYS_FAIL,
+                max_attempts=2,
+            )
+            job_id = job.id
+            await queue.enqueue(job_id)
+
+        runtime = _build_runtime(
+            session_factory=session_factory,
+            queue=queue,
+            worker_id="worker-dead-letter",
+        )
+
+        retry_result = await runtime.run_once()
+        dead_letter_result = await runtime.run_once()
+
+        assert retry_result.outcome is WorkerProcessOutcome.RETRIED
+        assert retry_result.job_status is JobStatus.QUEUED
+        assert dead_letter_result.outcome is WorkerProcessOutcome.DEAD_LETTERED
+        assert dead_letter_result.job_id == job_id
+        assert dead_letter_result.job_status is JobStatus.DEAD_LETTERED
+        assert dead_letter_result.error_message is not None
+        assert "always_fail intentionally failed" in dead_letter_result.error_message
+        assert queue.pending_count == 0
 
         async with session_factory() as session:
             stored = await JobRepository(session).get_job_by_id(job_id)
             assert stored is not None
-            assert stored.status == JobStatus.FAILED.value
+            assert stored.status == JobStatus.DEAD_LETTERED.value
             assert stored.result is None
             assert stored.error_message is not None
             assert "always_fail intentionally failed" in stored.error_message
-            assert stored.attempts == 1
+            assert stored.attempts == 2
+            assert stored.max_attempts == 2
             assert stored.lease_owner is None
             assert stored.lease_expires_at is None
             assert stored.finished_at is not None
     finally:
         await engine.dispose()
+
+
+def test_worker_runtime_honours_single_max_attempt_and_records_error(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_exercise_worker_single_max_attempt(tmp_path))
+
+
+async def _exercise_worker_single_max_attempt(tmp_path: Path) -> None:
+    engine, session_factory = await _build_sqlite_session_factory(tmp_path)
+    try:
+        queue = InMemoryJobQueue()
+        async with session_scope(session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.create_job(
+                job_type=JobType.ALWAYS_FAIL,
+                max_attempts=1,
+            )
+            job_id = job.id
+            await queue.enqueue(job_id)
+
+        runtime = _build_runtime(
+            session_factory=session_factory,
+            queue=queue,
+            worker_id="worker-one-attempt",
+        )
+
+        result = await runtime.run_once()
+
+        assert result.outcome is WorkerProcessOutcome.DEAD_LETTERED
+        assert result.job_id == job_id
+        assert result.job_status is JobStatus.DEAD_LETTERED
+        assert result.error_message is not None
+        assert result.error_message.startswith("HandlerExecutionError:")
+        assert "always_fail intentionally failed" in result.error_message
+        assert queue.pending_count == 0
+
+        async with session_factory() as session:
+            stored = await JobRepository(session).get_job_by_id(job_id)
+            assert stored is not None
+            assert stored.status == JobStatus.DEAD_LETTERED.value
+            assert stored.attempts == 1
+            assert stored.max_attempts == 1
+            assert stored.error_message == result.error_message
+            assert stored.lease_owner is None
+            assert stored.lease_expires_at is None
+            assert stored.finished_at is not None
+    finally:
+        await engine.dispose()
+
+
+def test_worker_runtime_truncates_recorded_error_messages(tmp_path: Path) -> None:
+    asyncio.run(_exercise_worker_error_truncation(tmp_path))
+
+
+async def _exercise_worker_error_truncation(tmp_path: Path) -> None:
+    engine, session_factory = await _build_sqlite_session_factory(tmp_path)
+    try:
+        queue = InMemoryJobQueue()
+        async with session_scope(session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.create_job(
+                job_type=JobType.ECHO,
+                max_attempts=1,
+            )
+            job_id = job.id
+            await queue.enqueue(job_id)
+
+        config = WorkerRuntimeConfig(
+            worker_id="worker-truncation",
+            poll_seconds=0.01,
+            lease_seconds=60.0,
+        )
+        service = JobWorkerService(
+            session_factory=session_factory,
+            queue=queue,
+            worker_id=config.worker_id,
+            lease_seconds=config.lease_seconds,
+            handler_runner=_raise_long_error,
+        )
+        runtime = WorkerRuntime(service=service, config=config)
+
+        result = await runtime.run_once()
+
+        assert result.outcome is WorkerProcessOutcome.DEAD_LETTERED
+        assert result.error_message is not None
+        assert len(result.error_message) == MAX_RECORDED_ERROR_MESSAGE_LENGTH
+        assert result.error_message.startswith("RuntimeError: ")
+
+        async with session_factory() as session:
+            stored = await JobRepository(session).get_job_by_id(job_id)
+            assert stored is not None
+            assert stored.status == JobStatus.DEAD_LETTERED.value
+            assert stored.error_message == result.error_message
+    finally:
+        await engine.dispose()
+
+
+async def _raise_long_error(
+    job_type: JobType | str,
+    payload: JobPayload | None = None,
+    *,
+    context: JobHandlerContext | None = None,
+) -> JobResult:
+    _ = job_type, payload, context
+    raise RuntimeError("x" * 3000)
 
 
 def _build_runtime(

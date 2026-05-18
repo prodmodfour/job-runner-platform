@@ -44,8 +44,9 @@ semantics, including allowing duplicate job IDs.
 - The queue abstraction keeps routes and future services/workers free of direct
   Redis calls.
 - A popped Redis signal can be lost if a process crashes before claiming the
-  database row. The queued PostgreSQL row remains durable; future worker/recovery
-  logic should reconcile queued or stale rows by re-signalling or scanning the
-  source of truth as later tickets add worker runtime and lease recovery.
+  database row. The queued PostgreSQL row remains durable; retry paths publish a
+  fresh signal when a failed job is requeued, and future lease recovery should
+  reconcile queued or stale rows by re-signalling or scanning the source of
+  truth.
 - The design can evolve to Redis Streams later if true in-flight acknowledgement
   becomes necessary, without changing route or repository boundaries.

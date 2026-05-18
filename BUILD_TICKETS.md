@@ -366,7 +366,7 @@ Commit when complete.
 
 ## 010 — Add retry and dead-letter behaviour
 
-Status: TODO
+Status: DONE
 
 Implement retry policy:
 
