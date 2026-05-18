@@ -11,6 +11,16 @@ This repository is designed for reviewers who want to see practical backend and 
 
 Public-safe by design: the project is independent and uses only local placeholder configuration plus fake demo data. **No arbitrary shell command execution.** Jobs can run only the built-in allowlisted demo handlers: `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`.
 
+## Suggested review path
+
+If you are reviewing this repository for backend/platform engineering signal:
+
+1. Read the portfolio framing in this README.
+2. Skim `docs/architecture.md` for the queue/worker/state model.
+3. Inspect `src/job_runner_platform/services/worker.py` for retry, cancellation, and dead-letter handling.
+4. Inspect `src/job_runner_platform/handlers/builtin.py` for the allowlisted safe handler boundary.
+5. Run `scripts/demo-smoke.sh` after starting Docker Compose.
+
 ## Portfolio framing
 
 `job-runner-platform` demonstrates how I structure a service that has to coordinate API requests, durable state, transient dispatch signals, and background workers without letting framework or infrastructure concerns leak across layers.
