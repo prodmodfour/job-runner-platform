@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs, executes allowlisted handlers, retries failures, and dead-letters jobs that exhaust `max_attempts`. Cancellation handling in workers, lease recovery loops, metrics, Docker Compose, and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, and dead-letters jobs that exhaust `max_attempts`. Cancellation handling in workers, metrics, Docker Compose, and CI will be added in later tickets.
 
 ## Public-safety constraints
 
@@ -111,7 +111,7 @@ See [`docs/decisions/0002-redis-as-dispatch-signal.md`](docs/decisions/0002-redi
 
 ## Worker runtime
 
-The worker CLI is available as `job-runner-worker` or `python -m job_runner_platform.worker`. It polls Redis for job ID dispatch signals, claims queued jobs through the service/repository path, runs only the safe allowlisted built-in handlers, records successful results, requeues retryable failures, marks exhausted jobs `dead_lettered` in PostgreSQL, acknowledges duplicate/obsolete signals safely, and logs lifecycle events with `worker_id` and `job_id` fields.
+The worker CLI is available as `job-runner-worker` or `python -m job_runner_platform.worker`. It recovers stale leases, polls Redis for job ID dispatch signals, claims queued jobs through the service/repository path, runs only the safe allowlisted built-in handlers, records successful results, requeues retryable failures, marks exhausted jobs `dead_lettered` in PostgreSQL, acknowledges duplicate/obsolete signals safely, and logs lifecycle events with `worker_id` and `job_id` fields.
 
 Local run flow once PostgreSQL and Redis are available:
 
@@ -123,7 +123,9 @@ uv run job-runner-worker          # long-running worker
 uv run job-runner-worker --once   # process at most one signal, then exit
 ```
 
-Shutdown is cooperative: `SIGINT`/`SIGTERM` ask the worker to stop between jobs. If a safe handler is already running, the worker lets it finish and records the outcome before exiting. On handler failure, jobs are requeued while attempts remain and are marked `dead_lettered` after `max_attempts`. Stale lease recovery and cooperative cancellation inside running handlers are intentionally left for later tickets.
+Shutdown is cooperative: `SIGINT`/`SIGTERM` ask the worker to stop between jobs. If a safe handler is already running, the worker lets it finish and records the outcome before exiting. On handler failure, jobs are requeued while attempts remain and are marked `dead_lettered` after `max_attempts`. Each worker loop also recovers expired `running` leases: jobs with attempts remaining are requeued and re-signalled, while exhausted jobs are marked `dead_lettered`. Cooperative cancellation inside running handlers is intentionally left for a later ticket.
+
+See [`docs/decisions/0004-leases-and-stale-job-recovery.md`](docs/decisions/0004-leases-and-stale-job-recovery.md) for the lease recovery design record.
 
 ## Database migrations
 
@@ -145,7 +147,7 @@ A local PostgreSQL service is not yet provided by this repository; Docker Compos
 - All HTTP responses include `X-Request-ID`; an incoming value is propagated and a UUID is generated when the header is absent.
 - Swagger/ReDoc/OpenAPI routes are disabled by default for safer public-facing defaults.
 
-The job API uses PostgreSQL and Redis through the service, repository, and queue layers. Safe handlers, the worker runtime, retry, and dead-letter behaviour are implemented and unit-tested, but a local Docker Compose stack is not available yet, so local end-to-end job execution still requires separately managed PostgreSQL and Redis services.
+The job API uses PostgreSQL and Redis through the service, repository, and queue layers. Safe handlers, the worker runtime, retry, dead-letter behaviour, and stale lease recovery are implemented and unit-tested, but a local Docker Compose stack is not available yet, so local end-to-end job execution still requires separately managed PostgreSQL and Redis services.
 
 ## Quality gate
 

@@ -26,6 +26,7 @@ from job_runner_platform.queues import JobQueue
 from job_runner_platform.repositories import JobRepository
 
 MAX_RECORDED_ERROR_MESSAGE_LENGTH: Final[int] = 2048
+DEFAULT_STALE_RECOVERY_LIMIT: Final[int] = 100
 
 
 class JobHandlerRunner(Protocol):
@@ -63,6 +64,25 @@ class WorkerProcessResult:
 
 
 @dataclass(frozen=True, slots=True)
+class StaleJobRecoveryResult:
+    """Summary of one explicit stale lease recovery pass."""
+
+    scanned: int
+    requeued_job_ids: tuple[JobId, ...] = ()
+    dead_lettered_job_ids: tuple[JobId, ...] = ()
+    skipped_job_ids: tuple[JobId, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _StaleLeasedJob:
+    id: JobId
+    attempts: int
+    max_attempts: int
+    lease_owner: str | None
+    lease_expires_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class _ClaimedJob:
     id: JobId
     job_type: JobType
@@ -74,10 +94,11 @@ class _ClaimedJob:
 class JobWorkerService:
     """Business workflow for worker-side job execution.
 
-    The worker service coordinates queue polling, PostgreSQL state transitions,
-    and safe built-in handler execution. It never executes arbitrary commands,
-    scripts, containers, subprocesses, or user-provided code strings. Duplicate
-    Redis messages are safe because every dispatch signal must claim the
+    The worker service coordinates stale lease recovery, queue polling,
+    PostgreSQL state transitions, and safe built-in handler execution. It never
+    executes arbitrary commands, scripts, containers, subprocesses, or
+    user-provided code strings. Duplicate Redis messages are safe because every
+    dispatch signal must claim the
     PostgreSQL row before any handler runs.
     """
 
@@ -101,6 +122,79 @@ class JobWorkerService:
         self._lease_seconds = lease_seconds
         self._handler_runner = handler_runner
         self._logger = logger or logging.getLogger(__name__)
+
+    async def recover_stale_jobs(
+        self,
+        *,
+        as_of: datetime | None = None,
+        limit: int = DEFAULT_STALE_RECOVERY_LIMIT,
+    ) -> StaleJobRecoveryResult:
+        """Recover running jobs whose leases have expired.
+
+        The current attempt was already counted when the job was claimed. Stale
+        jobs with attempts remaining are requeued and receive a fresh Redis
+        dispatch signal after the database transaction commits. Stale jobs that
+        have exhausted ``max_attempts`` are moved to ``dead_lettered``.
+        """
+
+        if limit < 1:
+            raise ValueError("limit must be greater than or equal to 1")
+
+        cutoff = as_of or datetime.now(UTC)
+        requeued_job_ids: list[JobId] = []
+        dead_lettered_job_ids: list[JobId] = []
+        skipped_job_ids: list[JobId] = []
+
+        async with session_scope(self._session_factory) as session:
+            repository = JobRepository(session)
+            stale_rows = await repository.find_stale_leased_jobs(
+                as_of=cutoff,
+                limit=limit,
+            )
+            stale_jobs = tuple(_snapshot_stale_leased_job(job) for job in stale_rows)
+
+        for stale_job in stale_jobs:
+            error_message = _stale_lease_error_message(
+                job=stale_job,
+                recovered_at=cutoff,
+            )
+            if stale_job.attempts < stale_job.max_attempts:
+                stored_status = await self._record_retry(stale_job.id, error_message)
+                if stored_status is None:
+                    skipped_job_ids.append(stale_job.id)
+                else:
+                    requeued_job_ids.append(stale_job.id)
+            else:
+                stored_status = await self._record_dead_letter(
+                    stale_job.id,
+                    error_message,
+                )
+                if stored_status is None:
+                    skipped_job_ids.append(stale_job.id)
+                else:
+                    dead_lettered_job_ids.append(stale_job.id)
+
+        for job_id in requeued_job_ids:
+            await self._queue.enqueue(job_id)
+
+        result = StaleJobRecoveryResult(
+            scanned=len(stale_jobs),
+            requeued_job_ids=tuple(requeued_job_ids),
+            dead_lettered_job_ids=tuple(dead_lettered_job_ids),
+            skipped_job_ids=tuple(skipped_job_ids),
+        )
+        if result.scanned > 0:
+            self._logger.warning(
+                "stale job leases recovered",
+                extra={
+                    "worker_id": self._worker_id,
+                    "stale_jobs_scanned": result.scanned,
+                    "stale_jobs_requeued": len(result.requeued_job_ids),
+                    "stale_jobs_dead_lettered": len(result.dead_lettered_job_ids),
+                    "stale_jobs_skipped": len(result.skipped_job_ids),
+                },
+            )
+        return result
 
     async def process_one_job(
         self,
@@ -311,6 +405,16 @@ class JobWorkerService:
             return JobStatus(dead_lettered.status)
 
 
+def _snapshot_stale_leased_job(job: JobModel) -> _StaleLeasedJob:
+    return _StaleLeasedJob(
+        id=job.id,
+        attempts=job.attempts,
+        max_attempts=job.max_attempts,
+        lease_owner=job.lease_owner,
+        lease_expires_at=job.lease_expires_at,
+    )
+
+
 def _snapshot_claimed_job(job: JobModel) -> _ClaimedJob:
     return _ClaimedJob(
         id=job.id,
@@ -324,4 +428,22 @@ def _snapshot_claimed_job(job: JobModel) -> _ClaimedJob:
 def _safe_error_message(exc: Exception) -> str:
     raw_message = str(exc).strip() or exc.__class__.__name__
     message = f"{exc.__class__.__name__}: {raw_message}"
+    return message[:MAX_RECORDED_ERROR_MESSAGE_LENGTH]
+
+
+def _stale_lease_error_message(
+    *,
+    job: _StaleLeasedJob,
+    recovered_at: datetime,
+) -> str:
+    lease_owner = job.lease_owner or "unknown"
+    if job.lease_expires_at is None:
+        lease_expires_at = "unknown"
+    else:
+        lease_expires_at = job.lease_expires_at.isoformat()
+    message = (
+        "StaleLeaseRecovery: job lease expired at "
+        f"{lease_expires_at} for worker {lease_owner}; "
+        f"recovered at {recovered_at.isoformat()}"
+    )
     return message[:MAX_RECORDED_ERROR_MESSAGE_LENGTH]

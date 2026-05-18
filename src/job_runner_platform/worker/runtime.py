@@ -51,8 +51,9 @@ class WorkerRuntime:
         self._logger = logger or logging.getLogger(__name__)
 
     async def run_once(self) -> WorkerProcessResult:
-        """Process at most one queue dispatch signal."""
+        """Recover stale leases, then process at most one dispatch signal."""
 
+        await self._service.recover_stale_jobs()
         return await self._service.process_one_job(
             timeout_seconds=self._config.poll_seconds,
         )

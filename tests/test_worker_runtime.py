@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import (
@@ -105,6 +106,163 @@ async def _exercise_worker_duplicate_signal_safety(tmp_path: Path) -> None:
             assert stored is not None
             assert stored.status == JobStatus.SUCCEEDED.value
             assert stored.attempts == 1
+    finally:
+        await engine.dispose()
+
+
+def test_worker_service_requeues_stale_leased_job_and_enqueues_signal(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_exercise_worker_stale_requeue(tmp_path))
+
+
+async def _exercise_worker_stale_requeue(tmp_path: Path) -> None:
+    engine, session_factory = await _build_sqlite_session_factory(tmp_path)
+    try:
+        queue = InMemoryJobQueue()
+        now = datetime.now(UTC)
+        async with session_scope(session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.create_job(job_type=JobType.ECHO, max_attempts=2)
+            job_id = job.id
+            claimed = await repository.claim_queued_job(
+                job_id=job_id,
+                worker_id="stale-worker-1",
+                lease_expires_at=now - timedelta(seconds=1),
+            )
+            assert claimed is not None
+            assert claimed.attempts == 1
+
+        service = JobWorkerService(
+            session_factory=session_factory,
+            queue=queue,
+            worker_id="recovery-worker",
+            lease_seconds=60.0,
+        )
+        result = await service.recover_stale_jobs(as_of=now)
+
+        assert result.scanned == 1
+        assert result.requeued_job_ids == (job_id,)
+        assert result.dead_lettered_job_ids == ()
+        assert result.skipped_job_ids == ()
+        assert queue.pending_count == 1
+        assert await queue.dequeue(timeout_seconds=0) == job_id
+
+        async with session_factory() as session:
+            stored = await JobRepository(session).get_job_by_id(job_id)
+            assert stored is not None
+            assert stored.status == JobStatus.QUEUED.value
+            assert stored.attempts == 1
+            assert stored.error_message is not None
+            assert "StaleLeaseRecovery" in stored.error_message
+            assert stored.lease_owner is None
+            assert stored.lease_expires_at is None
+            assert stored.started_at is None
+            assert stored.finished_at is None
+    finally:
+        await engine.dispose()
+
+
+def test_worker_service_dead_letters_stale_job_when_attempts_are_exhausted(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_exercise_worker_stale_dead_letter(tmp_path))
+
+
+async def _exercise_worker_stale_dead_letter(tmp_path: Path) -> None:
+    engine, session_factory = await _build_sqlite_session_factory(tmp_path)
+    try:
+        queue = InMemoryJobQueue()
+        now = datetime.now(UTC)
+        async with session_scope(session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.create_job(job_type=JobType.ECHO, max_attempts=1)
+            job_id = job.id
+            claimed = await repository.claim_queued_job(
+                job_id=job_id,
+                worker_id="stale-worker-2",
+                lease_expires_at=now - timedelta(seconds=1),
+            )
+            assert claimed is not None
+            assert claimed.attempts == 1
+
+        service = JobWorkerService(
+            session_factory=session_factory,
+            queue=queue,
+            worker_id="recovery-worker",
+            lease_seconds=60.0,
+        )
+        result = await service.recover_stale_jobs(as_of=now)
+
+        assert result.scanned == 1
+        assert result.requeued_job_ids == ()
+        assert result.dead_lettered_job_ids == (job_id,)
+        assert result.skipped_job_ids == ()
+        assert queue.pending_count == 0
+
+        async with session_factory() as session:
+            stored = await JobRepository(session).get_job_by_id(job_id)
+            assert stored is not None
+            assert stored.status == JobStatus.DEAD_LETTERED.value
+            assert stored.attempts == 1
+            assert stored.max_attempts == 1
+            assert stored.error_message is not None
+            assert "StaleLeaseRecovery" in stored.error_message
+            assert stored.lease_owner is None
+            assert stored.lease_expires_at is None
+            assert stored.finished_at is not None
+    finally:
+        await engine.dispose()
+
+
+def test_worker_runtime_recovers_stale_job_before_polling_queue(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_exercise_worker_runtime_stale_recovery(tmp_path))
+
+
+async def _exercise_worker_runtime_stale_recovery(tmp_path: Path) -> None:
+    engine, session_factory = await _build_sqlite_session_factory(tmp_path)
+    try:
+        queue = InMemoryJobQueue()
+        now = datetime.now(UTC)
+        async with session_scope(session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.create_job(
+                job_type=JobType.ECHO,
+                payload={"message": "recovered"},
+                max_attempts=2,
+            )
+            job_id = job.id
+            await repository.claim_queued_job(
+                job_id=job_id,
+                worker_id="stale-worker-3",
+                lease_expires_at=now - timedelta(seconds=1),
+            )
+
+        runtime = _build_runtime(
+            session_factory=session_factory,
+            queue=queue,
+            worker_id="worker-runtime-recovery",
+        )
+
+        result = await runtime.run_once()
+
+        assert result.outcome is WorkerProcessOutcome.SUCCEEDED
+        assert result.job_id == job_id
+        assert result.job_status is JobStatus.SUCCEEDED
+        assert queue.pending_count == 0
+
+        async with session_factory() as session:
+            stored = await JobRepository(session).get_job_by_id(job_id)
+            assert stored is not None
+            assert stored.status == JobStatus.SUCCEEDED.value
+            assert stored.result == {"payload": {"message": "recovered"}}
+            assert stored.error_message is None
+            assert stored.attempts == 2
+            assert stored.lease_owner is None
+            assert stored.lease_expires_at is None
+            assert stored.finished_at is not None
     finally:
         await engine.dispose()
 

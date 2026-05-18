@@ -29,3 +29,24 @@ attempt 2 succeeds. The `always_fail` handler demonstrates dead-lettering after
 Error messages are stored as bounded strings with the exception type prefix.
 Stack traces are logged by the worker for unexpected exceptions but are not
 stored in the job record.
+
+## Lease and stale job recovery
+
+Workers claim queued jobs by setting `lease_owner` and `lease_expires_at` while
+moving the job to `running`. The claim also increments `attempts`, so the running
+attempt is counted even if the worker later crashes.
+
+Each worker loop performs an explicit stale recovery pass before polling Redis.
+A running job is stale when `lease_expires_at` is in the past:
+
+1. If `attempts < max_attempts`, recovery stores a bounded
+   `StaleLeaseRecovery` error message, clears the lease fields, moves the job
+   back to `queued`, and publishes a fresh Redis dispatch signal.
+2. If `attempts >= max_attempts`, recovery stores the same bounded error style,
+   clears the lease fields, records `finished_at`, and marks the job
+   `dead_lettered`.
+
+If a slow original worker finishes after another worker has recovered its stale
+lease, the repository state check prevents the late worker from overwriting the
+newer state. Keep `JOB_RUNNER_JOB_LEASE_SECONDS` comfortably above expected demo
+handler runtime to avoid unnecessary duplicate execution.

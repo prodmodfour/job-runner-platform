@@ -393,7 +393,7 @@ Commit when complete.
 
 ## 011 — Add leases and stale job recovery
 
-Status: TODO
+Status: DONE
 
 Implement lease behaviour:
 

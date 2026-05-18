@@ -15,14 +15,17 @@ from job_runner_platform.services.jobs import (
     JobServiceError,
 )
 from job_runner_platform.services.worker import (
+    DEFAULT_STALE_RECOVERY_LIMIT,
     JobHandlerRunner,
     JobWorkerService,
+    StaleJobRecoveryResult,
     WorkerProcessOutcome,
     WorkerProcessResult,
 )
 
 __all__ = [
     "DEFAULT_LIST_LIMIT",
+    "DEFAULT_STALE_RECOVERY_LIMIT",
     "MAX_LIST_LIMIT",
     "InvalidJobStatusError",
     "InvalidJobTypeError",
@@ -36,6 +39,7 @@ __all__ = [
     "JobService",
     "JobServiceError",
     "JobWorkerService",
+    "StaleJobRecoveryResult",
     "WorkerProcessOutcome",
     "WorkerProcessResult",
 ]
