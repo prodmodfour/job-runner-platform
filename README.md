@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton plus a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, and `GET /healthz`. PostgreSQL persistence, Redis dispatch, worker runtime, retries, cancellation, leases, metrics, Docker Compose, and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, and explicit job domain/API schemas. PostgreSQL persistence, Redis dispatch, worker runtime, retries, cancellation, leases, metrics, Docker Compose, and CI will be added in later tickets.
 
 ## Public-safety constraints
 
@@ -73,6 +73,12 @@ Implemented app-shell settings:
 | `JOB_RUNNER_DOCS_ENABLED` | `false` | Enables `/docs`, `/redoc`, and `/openapi.json` only when explicitly set to `true`. |
 
 The ASGI application factory is `job_runner_platform.api.app:create_app`, and the default app object is `job_runner_platform.api.app:app`.
+
+## Job domain model
+
+The job schema layer defines the future API contract for safe demo jobs. Supported job types are allowlisted values only: `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`. Job statuses are explicit: `queued`, `running`, `succeeded`, `failed`, `cancel_requested`, `cancelled`, and `dead_lettered`.
+
+Job request/response schemas cover creation, detail views, list pages, cancellation responses, idempotency keys, attempts/max attempts, JSON payload/result fields, errors, timestamps, and lease metadata. Job routes are not exposed until a later ticket adds services, persistence, and queueing.
 
 ## Current API shell
 

@@ -87,7 +87,7 @@ Commit when complete.
 
 ## 002 — Define job domain model and API schemas
 
-Status: TODO
+Status: DONE
 
 Implement domain definitions for:
 
