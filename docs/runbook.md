@@ -1,8 +1,7 @@
 # Runbook
 
-Operational notes will expand as Docker Compose, readiness checks, metrics, and
-CI are added. Current local end-to-end runs require separately managed
-PostgreSQL and Redis services.
+Operational notes will expand as Docker Compose and CI are added. Current local
+end-to-end runs require separately managed PostgreSQL and Redis services.
 
 ## Retry and dead-letter handling
 
@@ -29,6 +28,26 @@ attempt 2 succeeds. The `always_fail` handler demonstrates dead-lettering after
 Error messages are stored as bounded strings with the exception type prefix.
 Stack traces are logged by the worker for unexpected exceptions but are not
 stored in the job record.
+
+## Metrics checks
+
+`GET /metrics` returns Prometheus text exposition and does not perform
+PostgreSQL or Redis dependency checks. Use it to verify API request metrics,
+worker polling metrics, queue polling metrics, and job lifecycle counters.
+Expected metric names include:
+
+- `jobs_created_total`
+- `jobs_started_total`
+- `jobs_succeeded_total`
+- `jobs_failed_total`
+- `jobs_retried_total`
+- `jobs_dead_lettered_total`
+- `jobs_cancelled_total`
+- `job_duration_seconds`
+
+The job-duration histogram measures worker processing time for claimed job
+attempts. A later Prometheus/Grafana ticket will add local scrape and dashboard
+configuration.
 
 ## Cancellation handling
 

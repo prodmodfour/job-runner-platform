@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from job_runner_platform.api.middleware import request_id_middleware
 from job_runner_platform.api.routes.health import router as health_router
 from job_runner_platform.api.routes.jobs import router as jobs_router
+from job_runner_platform.api.routes.metrics import router as metrics_router
 from job_runner_platform.logging import configure_logging
 from job_runner_platform.settings import Settings, get_settings
 
@@ -30,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.middleware("http")(request_id_middleware)
     app.include_router(health_router)
     app.include_router(jobs_router)
+    app.include_router(metrics_router)
     return app
 
 

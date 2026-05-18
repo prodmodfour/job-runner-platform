@@ -462,7 +462,7 @@ Commit when complete.
 
 ## 014 — Add Prometheus metrics
 
-Status: TODO
+Status: DONE
 
 Implement:
 

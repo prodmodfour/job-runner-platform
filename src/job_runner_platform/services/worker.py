@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from time import perf_counter
 from typing import Final, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -24,6 +25,7 @@ from job_runner_platform.handlers import (
     JobHandlerError,
     run_job_handler,
 )
+from job_runner_platform.observability import MetricsRecorder, get_metrics_recorder
 from job_runner_platform.queues import JobQueue
 from job_runner_platform.repositories import JobRepository
 
@@ -54,6 +56,16 @@ class WorkerProcessOutcome(StrEnum):
     DEAD_LETTERED = "dead_lettered"
     CANCELLED = "cancelled"
     RECORD_SKIPPED = "record_skipped"
+
+
+_DURATION_RECORDED_OUTCOMES: Final[frozenset[WorkerProcessOutcome]] = frozenset(
+    {
+        WorkerProcessOutcome.SUCCEEDED,
+        WorkerProcessOutcome.RETRIED,
+        WorkerProcessOutcome.DEAD_LETTERED,
+        WorkerProcessOutcome.RECORD_SKIPPED,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +126,7 @@ class JobWorkerService:
         lease_seconds: float,
         handler_runner: JobHandlerRunner = run_job_handler,
         logger: logging.Logger | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         if not worker_id:
             raise ValueError("worker_id must not be empty")
@@ -125,6 +138,7 @@ class JobWorkerService:
         self._lease_seconds = lease_seconds
         self._handler_runner = handler_runner
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or get_metrics_recorder()
 
     async def recover_stale_jobs(
         self,
@@ -166,6 +180,7 @@ class JobWorkerService:
                 if stored_status is None:
                     skipped_job_ids.append(stale_job.id)
                 else:
+                    self._metrics.record_job_failed()
                     requeued_job_ids.append(stale_job.id)
             else:
                 stored_status = await self._record_dead_letter(
@@ -175,6 +190,7 @@ class JobWorkerService:
                 if stored_status is None:
                     skipped_job_ids.append(stale_job.id)
                 else:
+                    self._metrics.record_job_failed()
                     dead_lettered_job_ids.append(stale_job.id)
 
         for job_id in requeued_job_ids:
@@ -206,10 +222,24 @@ class JobWorkerService:
     ) -> WorkerProcessResult:
         """Poll for one job ID, claim it, execute it, and persist the outcome."""
 
+        started_at = perf_counter()
+        result = await self._process_one_job(timeout_seconds=timeout_seconds)
+        self._metrics.record_worker_poll(outcome=result.outcome.value)
+        if result.outcome in _DURATION_RECORDED_OUTCOMES:
+            self._metrics.record_job_duration(perf_counter() - started_at)
+        return result
+
+    async def _process_one_job(
+        self,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> WorkerProcessResult:
         job_id = await self._queue.dequeue(timeout_seconds=timeout_seconds)
         if job_id is None:
+            self._metrics.record_queue_poll(message_received=False)
             return WorkerProcessResult(outcome=WorkerProcessOutcome.NO_MESSAGE)
 
+        self._metrics.record_queue_poll(message_received=True)
         self._logger.info(
             "job dispatch signal received",
             extra={"worker_id": self._worker_id, "job_id": str(job_id)},
@@ -339,6 +369,7 @@ class JobWorkerService:
             )
             if job is None:
                 return None
+            self._metrics.record_job_started()
             return _snapshot_claimed_job(job)
 
     async def _record_success(
@@ -351,6 +382,7 @@ class JobWorkerService:
             completed = await repository.complete_job(job_id=job_id, result=result)
             if completed is None:
                 return None
+            self._metrics.record_job_succeeded()
             return JobStatus(completed.status)
 
     async def _record_cancelled_if_requested(
@@ -449,6 +481,7 @@ class JobWorkerService:
                 error_message=error_message,
             )
 
+        self._metrics.record_job_failed()
         await self._queue.acknowledge(claimed_job.id)
 
         self._logger.warning(
@@ -483,6 +516,7 @@ class JobWorkerService:
             )
             if requeued is None:
                 return None
+            self._metrics.record_job_retried()
             return JobStatus(requeued.status)
 
     async def _record_dead_letter(
@@ -498,6 +532,7 @@ class JobWorkerService:
             )
             if dead_lettered is None:
                 return None
+            self._metrics.record_job_dead_lettered()
             return JobStatus(dead_lettered.status)
 
     async def _record_cancelled(
@@ -514,6 +549,7 @@ class JobWorkerService:
             )
             if cancelled is None:
                 return None
+            self._metrics.record_job_cancelled()
             return JobStatus(cancelled.status)
 
     async def _get_job_status(self, job_id: JobId) -> JobStatus | None:

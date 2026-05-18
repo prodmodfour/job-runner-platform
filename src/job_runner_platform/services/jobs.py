@@ -17,6 +17,7 @@ from job_runner_platform.domain.jobs import (
     MaxAttempts,
     is_terminal_status,
 )
+from job_runner_platform.observability import MetricsRecorder, get_metrics_recorder
 from job_runner_platform.queues import JobQueue
 from job_runner_platform.repositories import JobRepository
 
@@ -85,9 +86,16 @@ class JobService:
     containers, subprocesses, or code strings.
     """
 
-    def __init__(self, *, repository: JobRepository, queue: JobQueue) -> None:
+    def __init__(
+        self,
+        *,
+        repository: JobRepository,
+        queue: JobQueue,
+        metrics: MetricsRecorder | None = None,
+    ) -> None:
         self._repository = repository
         self._queue = queue
+        self._metrics = metrics or get_metrics_recorder()
 
     async def create_job(
         self,
@@ -123,6 +131,7 @@ class JobService:
             idempotency_key=idempotency_key,
         )
         await self._queue.enqueue(job.id)
+        self._metrics.record_job_created()
         return JobCreationResult(job=job, idempotency_replayed=False)
 
     async def get_job(self, job_id: JobId) -> JobModel | None:
@@ -184,6 +193,7 @@ class JobService:
 
         updated_status = _job_status(updated_job)
         if updated_status is JobStatus.CANCELLED:
+            self._metrics.record_job_cancelled()
             message = "queued job cancelled"
         elif updated_status is JobStatus.CANCEL_REQUESTED:
             message = "cancellation requested"
