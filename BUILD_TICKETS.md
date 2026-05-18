@@ -523,7 +523,7 @@ Commit when complete.
 
 ## 016 — Add Dockerfile and Docker Compose stack
 
-Status: TODO
+Status: DONE
 
 Implement:
 

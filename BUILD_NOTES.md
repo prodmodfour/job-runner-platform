@@ -2,7 +2,7 @@
 
 ## Current state
 
-Tickets 000 through 015 are complete. The repository now has the initial Python
+Tickets 000 through 016 are complete. The repository now has the initial Python
 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode,
 pytest, pytest-cov, documentation directories, public-safe example
 configuration, a reusable quality gate, a FastAPI application shell, explicit
@@ -13,21 +13,28 @@ layer for create/get/list/cancel workflows, FastAPI job routes for those
 workflows, safe allowlisted built-in demo job handlers, a worker CLI/runtime,
 retry/dead-letter behaviour, lease-based stale job recovery, cooperative worker
 cancellation handling, API readiness checks for PostgreSQL and Redis,
-Prometheus metrics exposition, and optional API key authentication for business
-job endpoints.
+Prometheus metrics exposition, optional API key authentication for business job
+endpoints, and a local Docker Compose stack.
 
-Ticket 015 added:
+Ticket 016 added:
 
-- `JOB_RUNNER_AUTH_ENABLED` and `JOB_RUNNER_AUTH_API_KEYS` settings using the
-  existing `JOB_RUNNER_` configuration prefix.
-- A small FastAPI API-key dependency that checks `X-API-Key` with constant-time
-  comparisons when auth is enabled.
-- Business endpoint protection for `/jobs` routes only; `/healthz`, `/readyz`,
-  and `/metrics` remain unprotected for liveness, readiness, and Prometheus
-  scraping.
-- Tests covering auth disabled, missing API key, invalid API key, valid API key,
-  settings parsing, and unprotected system endpoints.
-- README updates documenting auth configuration and API behaviour.
+- A multi-stage `Dockerfile` that installs locked runtime dependencies with
+  `uv`, includes Alembic migrations, starts the FastAPI app with Uvicorn, runs
+  as a non-root `app` user, and defines a `/healthz` container health check.
+- `docker-compose.yml` with local-only placeholder configuration for `api`,
+  `worker`, `postgres`, `redis`, `prometheus`, and `grafana` services.
+- Compose dependency health checks for PostgreSQL, Redis, the API, and worker
+  process liveness, with loopback-only host port bindings for local use.
+- Automatic Alembic migration execution in the local Compose API container
+  before Uvicorn starts, so `docker compose up --build` can run an end-to-end
+  local stack.
+- A `.dockerignore` to keep virtual environments, caches, local env files, and
+  build artifacts out of the container build context.
+- Runtime `uvicorn[standard]` dependency for the containerized API server.
+- Container configuration tests covering required services, non-root runtime
+  posture, local placeholder environment, health checks, and dependency order.
+- README updates documenting Docker Compose requirements and quick-start
+  commands.
 
 ## Quality gates
 
@@ -40,11 +47,13 @@ Latest run:
   - `uv run ruff format --check .`
   - `uv run mypy src tests`
   - `uv run pytest --cov=job_runner_platform --cov-report=term-missing`
+    (`85 passed`)
 
 Additional validation this cycle before the full gate:
 
-- `uv run ruff check . && uv run ruff format --check . && uv run mypy src tests && uv run pytest tests/test_api_auth.py tests/test_api_app.py -q` — passed (`11 passed`).
-- `uv run ruff check . && uv run ruff format --check . && uv run mypy src tests && uv run pytest -q` — passed (`82 passed`).
+- `docker compose config` — passed.
+- `docker build --check .` — passed.
+- `uv run ruff check . && uv run ruff format --check . && uv run mypy src tests && uv run pytest tests/test_container_config.py -q` — passed (`3 passed`).
 
 ## Public-safety notes
 
@@ -56,36 +65,38 @@ non-public architecture, or anything implying employer endorsement.
 Do not implement arbitrary shell command execution. Jobs must be safe
 allowlisted demo handlers only.
 
+The Compose stack uses local placeholder values only. The PostgreSQL password
+and Grafana defaults are local development placeholders, not production
+credentials, and the exposed ports bind to `127.0.0.1`.
+
 ## Latest cycle notes
 
-- Implemented only the optional API key authentication scope required by ticket
-  015; Docker Compose, Prometheus/Grafana scrape/dashboard configuration, CI,
-  automation guardrails, and broader docs tickets were not introduced.
-- Preserved architecture boundaries: auth is an API-layer dependency applied to
-  business job routes, routes remain thin, repositories still own SQL, and queue
-  abstractions still hide Redis details.
-- Preserved public-safety constraints: test/configuration keys are local demo
-  placeholders only. No shell commands, subprocesses, containers,
-  user-submitted code, host-level operations, real credentials, private data, or
-  employer-specific details were added.
-- System endpoints remain accessible without API keys so orchestrators and
-  Prometheus can call `/healthz`, `/readyz`, and `/metrics` even when business
-  API authentication is enabled.
+- Implemented only the Dockerfile and Docker Compose scope required by ticket
+  016; Prometheus scrape configuration, Grafana provisioning/dashboards, CI,
+  automation guardrails, and broader operations docs were not introduced.
+- Preserved architecture boundaries: the container stack wires existing API,
+  worker, database, and queue components together without moving database or
+  Redis access into routes.
+- Preserved public-safety constraints: no employer/private details, external
+  secrets, arbitrary user-submitted commands, subprocess job handlers, or host
+  filesystem mutation features were added.
+- The API and worker containers share the same application image; Compose gives
+  each service a fixed command and local environment.
 
 ## Limitations
 
-API key authentication is intentionally simple and optional: it protects the
-current `/jobs` business endpoints only when enabled and uses comma-separated
-static keys from environment configuration. It does not provide user identity,
-roles, key rotation APIs, or per-key auditing. Docker Compose, local
-Prometheus/Grafana configuration, GitHub Actions CI, and automation guardrails
-remain future tickets. Metrics are process-local; a multi-process deployment
-would need an explicit aggregation strategy later. Readiness checks verify
-PostgreSQL and Redis connectivity only; they do not verify that migrations are
-current or that a worker is running. Local end-to-end execution currently
-requires separately managed PostgreSQL and Redis services because the Docker
-Compose stack is not implemented yet.
+The Docker Compose stack is for local development and portfolio demos only. It
+uses placeholder local credentials and should not be treated as a production
+security baseline. The API container runs Alembic migrations automatically for
+local convenience; production deployments would usually run migrations as an
+explicit release step. Prometheus and Grafana services are present, but custom
+scrape configuration, Grafana provisioning, and dashboards remain future ticket
+017. GitHub Actions CI, automation guardrails, broader documentation, and smoke
+demo scripts remain future tickets. Metrics are process-local; a multi-process
+deployment would need an explicit aggregation strategy later. Readiness checks
+verify PostgreSQL and Redis connectivity only; they do not verify that a worker
+is running.
 
 ## Next recommended ticket
 
-Ticket 016.
+Ticket 017.

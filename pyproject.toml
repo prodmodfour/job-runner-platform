@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.14.1",
     "redis>=5.0.0",
     "sqlalchemy[asyncio]>=2.0.44",
+    "uvicorn[standard]>=0.38.0",
 ]
 
 [project.scripts]

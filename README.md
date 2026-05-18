@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, optional API key authentication for business endpoints, `GET /healthz`, `GET /readyz` dependency checks for PostgreSQL and Redis, `GET /metrics` Prometheus exposition, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. Docker Compose and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, optional API key authentication for business endpoints, `GET /healthz`, `GET /readyz` dependency checks for PostgreSQL and Redis, `GET /metrics` Prometheus exposition, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. A local Docker Compose stack now runs the API, worker, PostgreSQL, Redis, Prometheus, and Grafana services; CI will be added in a later ticket.
 
 ## Public-safety constraints
 
@@ -32,6 +32,7 @@ The completed project is intended to demonstrate:
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
+- Docker with Docker Compose v2 for the local container stack
 - Make (optional convenience wrapper)
 
 ## Development quick start
@@ -46,6 +47,33 @@ Or use Make:
 
 ```bash
 make quality
+```
+
+## Docker Compose quick start
+
+The Compose stack is intended for local portfolio demos only and uses public-safe placeholder configuration. It builds one application image and runs separate API and worker containers alongside PostgreSQL, Redis, Prometheus, and Grafana.
+
+```bash
+docker compose up --build
+```
+
+The API container runs Alembic migrations before starting Uvicorn. Once the stack is healthy, the API is available on <http://127.0.0.1:8000>:
+
+```bash
+curl http://127.0.0.1:8000/healthz
+curl http://127.0.0.1:8000/readyz
+curl -X POST http://127.0.0.1:8000/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"job_type":"echo","payload":{"message":"hello from compose"}}'
+```
+
+Useful local commands:
+
+```bash
+docker compose config
+docker compose logs -f api worker
+docker compose down
+docker compose down -v  # also remove local PostgreSQL/Redis/observability volumes
 ```
 
 ## Repository layout
@@ -139,7 +167,7 @@ Alembic is configured at `alembic.ini` with migration scripts in `migrations/`. 
 JOB_RUNNER_DATABASE_URL=postgresql+asyncpg://localhost:5432/job_runner uv run alembic upgrade head
 ```
 
-A local PostgreSQL service is not yet provided by this repository; Docker Compose arrives in a later ticket.
+The Docker Compose API service runs this migration command automatically during local container startup after PostgreSQL is healthy. For manually managed databases, run the command directly from your shell.
 
 ## API surface
 
@@ -154,7 +182,7 @@ A local PostgreSQL service is not yet provided by this repository; Docker Compos
 - All HTTP responses include `X-Request-ID`; an incoming value is propagated and a UUID is generated when the header is absent.
 - Swagger/ReDoc/OpenAPI routes are disabled by default for safer public-facing defaults.
 
-The job API, optional API key authentication, readiness checks, and metrics instrumentation use PostgreSQL and Redis through service, repository/database, queue, and observability layers. Safe handlers, the worker runtime, retry, dead-letter behaviour, cancellation, stale lease recovery, and Prometheus metric exposition are implemented and unit-tested, but a local Docker Compose stack is not available yet, so local end-to-end job execution still requires separately managed PostgreSQL and Redis services.
+The job API, optional API key authentication, readiness checks, and metrics instrumentation use PostgreSQL and Redis through service, repository/database, queue, and observability layers. Safe handlers, the worker runtime, retry, dead-letter behaviour, cancellation, stale lease recovery, Prometheus metric exposition, and a local Docker Compose stack are implemented and unit-tested.
 
 ## Observability metrics
 

@@ -1,0 +1,35 @@
+# VCS and agent state
+.git/
+.pi/
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local-only environment files
+.env
+.env.*
+!.env.example
+!example.env
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/

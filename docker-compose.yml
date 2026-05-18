@@ -1,0 +1,142 @@
+name: job-runner-platform
+
+x-app-environment: &app-environment
+  JOB_RUNNER_APP_NAME: job-runner-platform
+  JOB_RUNNER_APP_VERSION: "0.1.0"
+  JOB_RUNNER_ENVIRONMENT: local
+  JOB_RUNNER_LOG_LEVEL: INFO
+  JOB_RUNNER_DOCS_ENABLED: "true"
+  JOB_RUNNER_AUTH_ENABLED: "false"
+  JOB_RUNNER_AUTH_API_KEYS: ""
+  JOB_RUNNER_DATABASE_URL: postgresql+asyncpg://job_runner:job_runner@postgres:5432/job_runner
+  JOB_RUNNER_REDIS_URL: redis://redis:6379/0
+  JOB_RUNNER_JOB_LEASE_SECONDS: "60"
+  JOB_RUNNER_JOB_POLL_SECONDS: "1"
+  JOB_RUNNER_MAX_ATTEMPTS: "3"
+
+services:
+  api:
+    build:
+      context: .
+    image: job-runner-platform:local
+    command:
+      - /bin/sh
+      - -c
+      - alembic upgrade head && exec uvicorn job_runner_platform.api.app:app --host 0.0.0.0 --port 8000
+    environment:
+      <<: *app-environment
+      JOB_RUNNER_WORKER_ID: compose-api
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+    image: job-runner-platform:local
+    command:
+      - job-runner-worker
+    environment:
+      <<: *app-environment
+      JOB_RUNNER_WORKER_ID: compose-worker-1
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import os; os.kill(1, 0)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: job_runner
+      POSTGRES_USER: job_runner
+      POSTGRES_PASSWORD: job_runner
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U job_runner -d job_runner
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
