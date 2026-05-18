@@ -59,7 +59,7 @@ Commit when complete.
 
 ## 001 — Add FastAPI app shell, settings, logging, and health endpoint
 
-Status: TODO
+Status: DONE
 
 Implement:
 

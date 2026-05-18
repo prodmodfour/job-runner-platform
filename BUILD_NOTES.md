@@ -2,7 +2,18 @@
 
 ## Current state
 
-Ticket 000 is complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, and a reusable quality gate.
+Tickets 000 and 001 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, and a FastAPI application shell.
+
+Ticket 001 added:
+
+- FastAPI app factory at `job_runner_platform.api.app:create_app` plus default ASGI app `job_runner_platform.api.app:app`.
+- `Settings` loaded from `JOB_RUNNER_`-prefixed environment variables.
+- Docs/OpenAPI disabled by default and enabled only with `JOB_RUNNER_DOCS_ENABLED=true`.
+- Structured JSON logging with request ID context.
+- `X-Request-ID` propagation/generation middleware.
+- `GET /healthz` liveness endpoint returning app metadata.
+- Tests for health, request IDs, docs configuration, environment-backed settings, and JSON log formatting.
+- README configuration/API shell updates and refreshed `example.env` wording.
 
 ## Quality gates
 
@@ -26,16 +37,15 @@ Do not implement arbitrary shell command execution. Jobs must be safe allowliste
 
 ## Latest cycle notes
 
-- Added `README.md` with portfolio framing, public-safety constraints, no arbitrary command execution rule, skills demonstrated, quick start, layout, configuration, and quality gate notes.
-- Added `pyproject.toml`, generated `uv.lock`, and created the package under `src/job_runner_platform/`.
-- Added a basic import test in `tests/test_import.py`.
-- Added `docs/` and `docs/decisions/` placeholders for later tickets.
-- Replaced the quality gate with an executable shell script and added Makefile convenience targets.
+- Added FastAPI dependencies and test client support.
+- Kept routes thin: `/healthz` performs only process liveness metadata reporting and does not call databases or Redis.
+- Request ID propagation is implemented independently of future business/job routes.
+- No arbitrary command execution, subprocess execution, credentials, or private details were added.
 
 ## Limitations
 
-Only the bootstrap skeleton exists. The FastAPI application, settings, logging, database, queue, worker, metrics, Docker Compose, CI, and detailed operations docs remain future tickets.
+The API shell has only `/healthz`; `/readyz`, `/metrics`, job schemas, persistence, Redis queueing, worker runtime, auth, Docker Compose, and CI remain future tickets.
 
 ## Next recommended ticket
 
-Ticket 001.
+Ticket 002.

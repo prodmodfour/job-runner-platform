@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-This first build ticket bootstraps the repository structure, Python packaging, quality tooling, and a basic import test. The FastAPI API, PostgreSQL persistence, Redis dispatch, worker runtime, retries, cancellation, leases, metrics, Docker Compose, and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton plus a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, and `GET /healthz`. PostgreSQL persistence, Redis dispatch, worker runtime, retries, cancellation, leases, metrics, Docker Compose, and CI will be added in later tickets.
 
 ## Public-safety constraints
 
@@ -60,7 +60,25 @@ scripts/                   local automation and quality gates
 
 ## Configuration
 
-Runtime configuration will use environment variables prefixed with `JOB_RUNNER_`. See `example.env` for public-safe local placeholders.
+Runtime configuration uses environment variables prefixed with `JOB_RUNNER_`. See `example.env` for public-safe local placeholders.
+
+Implemented app-shell settings:
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `JOB_RUNNER_APP_NAME` | `job-runner-platform` | FastAPI application title and health metadata. |
+| `JOB_RUNNER_APP_VERSION` | `0.1.0` | FastAPI/OpenAPI version and health metadata. |
+| `JOB_RUNNER_ENVIRONMENT` | `local` | Environment label emitted by health responses and logs. |
+| `JOB_RUNNER_LOG_LEVEL` | `INFO` | Root structured logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`). |
+| `JOB_RUNNER_DOCS_ENABLED` | `false` | Enables `/docs`, `/redoc`, and `/openapi.json` only when explicitly set to `true`. |
+
+The ASGI application factory is `job_runner_platform.api.app:create_app`, and the default app object is `job_runner_platform.api.app:app`.
+
+## Current API shell
+
+- `GET /healthz` returns liveness metadata for the API process.
+- All HTTP responses include `X-Request-ID`; an incoming value is propagated and a UUID is generated when the header is absent.
+- Swagger/ReDoc/OpenAPI routes are disabled by default for safer public-facing defaults.
 
 ## Quality gate
 
