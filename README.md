@@ -1,41 +1,103 @@
 # Job Runner Platform
 
-`job-runner-platform` is an independent public portfolio project that demonstrates backend and platform engineering through a production-style background job platform.
+**A production-style FastAPI, PostgreSQL, Redis, and worker-based background job platform built as a public-safe backend/platform engineering portfolio project.**
 
-The repository is intentionally public-safe: it uses only generic local configuration, fake demo data, and documented constraints. It is not affiliated with any employer or private system.
+This repository is designed for reviewers who want to see practical backend and platform work in one place: API design, durable persistence, Redis dispatch signalling, worker lifecycle management, retries, dead-letter handling, idempotency, cooperative cancellation, leases, structured logs, Prometheus metrics, Docker Compose, CI, guardrails, tests, runbooks, and architecture decisions.
 
-## Current status
+Public-safe by design: the project is independent and uses only local placeholder configuration plus fake demo data. **No arbitrary shell command execution.** Jobs can run only the built-in allowlisted demo handlers: `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`.
 
-The repository now includes the initial Python package skeleton, public-safety and architecture guardrail scripts, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, optional API key authentication for business endpoints, `GET /healthz`, `GET /readyz` dependency checks for PostgreSQL and Redis, `GET /metrics` Prometheus exposition, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. A local Docker Compose stack runs the API, worker, PostgreSQL, Redis, Prometheus, and Grafana services with local scrape configuration, Grafana provisioning, and a basic dashboard. GitHub Actions CI mirrors the local quality checks, runs the guardrails, and validates Docker Compose plus Alembic migrations against a PostgreSQL service container.
+## Portfolio framing
+
+`job-runner-platform` demonstrates how I structure a service that has to coordinate API requests, durable state, transient dispatch signals, and background workers without letting framework or infrastructure concerns leak across layers.
+
+What to look for during review:
+
+- Thin FastAPI routes with validation in schemas and workflow in services.
+- PostgreSQL as the source of truth, managed through SQLAlchemy asyncio and Alembic.
+- Redis used only as a job-ID dispatch signal, not as the durable job store.
+- A worker runtime that claims jobs with leases, handles duplicate queue messages safely, retries failures, dead-letters exhausted jobs, and cooperatively observes cancellation.
+- Structured JSON logging, `X-Request-ID` propagation, health/readiness probes, and Prometheus metrics.
+- Local Docker Compose operations, GitHub Actions CI, quality gates, guardrails, docs, runbooks, and ADRs.
+
+## Implemented scope
+
+- **API:** `GET /healthz`, `GET /readyz`, `GET /metrics`, `POST /jobs`, `GET /jobs`, `GET /jobs/{job_id}`, and `POST /jobs/{job_id}/cancel`.
+- **Job model:** explicit statuses (`queued`, `running`, `succeeded`, `failed`, `cancel_requested`, `cancelled`, `dead_lettered`), attempts, max attempts, priority, payload/result JSON, errors, idempotency keys, timestamps, and lease metadata.
+- **Persistence:** async SQLAlchemy session setup, PostgreSQL `jobs` table, Alembic migration, indexes, repository-owned SQL, and integration-style repository tests.
+- **Queue dispatch:** Redis-backed queue abstraction plus in-memory fake for tests; PostgreSQL remains authoritative and duplicate Redis signals are safe.
+- **Worker:** CLI/runtime with worker IDs, stale lease recovery, safe handler execution, retry/dead-letter behaviour, cooperative cancellation, and graceful stop between jobs.
+- **Observability:** structured JSON logs, request IDs, readiness checks, Prometheus counters/histograms, local Prometheus scrape config, Grafana provisioning, and a basic dashboard.
+- **Operations and automation:** Dockerfile, Docker Compose stack, smoke demo script, GitHub Actions CI, public-safety guardrail, architecture-boundary guardrail, Ruff, mypy strict mode, pytest, and coverage.
 
 ## Public-safety constraints
 
-This project must not include employer code, private data, internal URLs or hostnames, credentials, tokens, screenshots of private systems, non-public architecture, or anything implying employer endorsement.
+This is an independent public portfolio project. It must not include employer code, private data, internal URLs or hostnames, credentials, tokens, screenshots of private systems, non-public architecture, or anything implying employer endorsement.
 
-The platform must not implement arbitrary shell command execution. Jobs are limited to safe allowlisted demo handlers such as `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`.
+The platform must not run arbitrary user-submitted commands, scripts, Docker containers, Python code strings, subprocesses, or host-level operations. Job execution is intentionally limited to safe built-in demo handlers.
 
-## Backend/platform skills demonstrated
+## Out of scope
 
-The completed project is intended to demonstrate:
+The project intentionally does not implement:
 
-- FastAPI backend API design
-- PostgreSQL persistence and migrations
-- Redis-backed queue/dispatch signalling
-- Worker process design
-- retries, dead-letter handling, idempotency, cancellation, and leases
-- structured JSON logging and request ID propagation
-- Prometheus metrics and health/readiness checks
-- Docker Compose local operations
-- GitHub Actions CI, tests, docs, runbooks, and architecture decisions
+- arbitrary command execution, user-provided code execution, or user-supplied container execution
+- production multi-tenant authorization/RBAC
+- production secret management, TLS termination, network policy, backups, or alerting
+- autoscaling or high-availability deployment manifests
+- long-running unbounded handlers or worker lease heartbeats
+- a full admin UI
+
+Those choices keep the repository safe for public review while still demonstrating backend/platform engineering fundamentals.
 
 ## Requirements
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
-- Docker with Docker Compose v2 for the local container stack
-- Make (optional convenience wrapper)
+- Docker with Docker Compose v2 for the local stack
+- Make, optional, for convenience targets
 
-## Development quick start
+## Quick start
+
+Run the full local demo stack:
+
+```bash
+docker compose up --build
+```
+
+The stack builds one application image and starts API, worker, PostgreSQL, Redis, Prometheus, and Grafana services. The API service runs Alembic migrations before starting Uvicorn.
+
+Useful local URLs after the stack is healthy:
+
+- API: <http://127.0.0.1:8000>
+- Prometheus: <http://127.0.0.1:9090>
+- Grafana: <http://127.0.0.1:3000> with anonymous local viewer access and the provisioned **Job Runner Platform** dashboard
+
+Try the API:
+
+```bash
+curl http://127.0.0.1:8000/healthz
+curl http://127.0.0.1:8000/readyz
+curl -X POST http://127.0.0.1:8000/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"job_type":"echo","payload":{"message":"hello from compose"}}'
+```
+
+Run the public-safe smoke walkthrough after Compose is healthy:
+
+```bash
+scripts/demo-smoke.sh
+```
+
+The smoke demo creates `echo` and `checksum` jobs, observes `fail_once` retry behaviour, observes `always_fail` dead-letter behaviour, cancels a bounded `sleep` job, and verifies key metrics. See [`docs/demo-smoke.md`](docs/demo-smoke.md).
+
+Stop the local stack:
+
+```bash
+docker compose down
+# or remove local PostgreSQL/Redis/observability volumes too:
+docker compose down -v
+```
+
+## Local development
 
 ```bash
 uv sync --all-groups
@@ -49,163 +111,109 @@ Or use Make:
 make quality
 ```
 
-## Docker Compose quick start
-
-The Compose stack is intended for local portfolio demos only and uses public-safe placeholder configuration. It builds one application image and runs separate API and worker containers alongside PostgreSQL, Redis, Prometheus, and Grafana.
-
-```bash
-docker compose up --build
-```
-
-The API container runs Alembic migrations before starting Uvicorn. Once the stack is healthy, local endpoints are available at:
-
-- API: <http://127.0.0.1:8000>
-- Prometheus: <http://127.0.0.1:9090>
-- Grafana: <http://127.0.0.1:3000> with anonymous local viewer access and the provisioned **Job Runner Platform** dashboard
-
-Example API checks:
-
-```bash
-curl http://127.0.0.1:8000/healthz
-curl http://127.0.0.1:8000/readyz
-curl -X POST http://127.0.0.1:8000/jobs \
-  -H 'Content-Type: application/json' \
-  -d '{"job_type":"echo","payload":{"message":"hello from compose"}}'
-```
-
-Run the local smoke demo after Compose is healthy to create echo/checksum jobs, observe retry and dead-letter behaviour, cancel a sleep job, and check metrics:
-
-```bash
-scripts/demo-smoke.sh
-```
-
-See [`docs/demo-smoke.md`](docs/demo-smoke.md) for the script flow and optional local-only settings.
-
-Useful local commands:
+Validate Compose without starting containers:
 
 ```bash
 docker compose config
-docker compose logs -f api worker
-docker compose down
-docker compose down -v  # also remove local PostgreSQL/Redis/observability volumes
-```
-
-## Repository layout
-
-```text
-src/job_runner_platform/   Python package source
-tests/                     pytest test suite
-docs/                      project documentation
-docs/decisions/            architecture decision records
-scripts/                   local automation and quality gates
 ```
 
 ## Configuration
 
-Runtime configuration uses environment variables prefixed with `JOB_RUNNER_`. See `example.env` for public-safe local placeholders.
-
-Implemented runtime settings:
+Runtime configuration uses environment variables prefixed with `JOB_RUNNER_`. See [`example.env`](example.env) for public-safe local placeholders. OpenAPI/Swagger/ReDoc are disabled by default and should be explicitly enabled only for local exploration.
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `JOB_RUNNER_APP_NAME` | `job-runner-platform` | FastAPI application title and health metadata. |
-| `JOB_RUNNER_APP_VERSION` | `0.1.0` | FastAPI/OpenAPI version and health metadata. |
-| `JOB_RUNNER_ENVIRONMENT` | `local` | Environment label emitted by health responses and logs. |
-| `JOB_RUNNER_LOG_LEVEL` | `INFO` | Root structured logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`). |
-| `JOB_RUNNER_DOCS_ENABLED` | `false` | Enables `/docs`, `/redoc`, and `/openapi.json` only when explicitly set to `true`. |
-| `JOB_RUNNER_AUTH_ENABLED` | `false` | Enables API key authentication for business job endpoints when set to `true`. |
-| `JOB_RUNNER_AUTH_API_KEYS` | empty | Comma-separated list of accepted `X-API-Key` values when API auth is enabled. |
-| `JOB_RUNNER_DATABASE_URL` | `postgresql+asyncpg://localhost:5432/job_runner` | Async SQLAlchemy database URL used by Alembic and repositories. |
+| `JOB_RUNNER_APP_NAME` | `job-runner-platform` | FastAPI title and health metadata. |
+| `JOB_RUNNER_APP_VERSION` | `0.1.0` | Application version shown in health metadata and OpenAPI when enabled. |
+| `JOB_RUNNER_ENVIRONMENT` | `local` | Environment label emitted in health responses and logs. |
+| `JOB_RUNNER_LOG_LEVEL` | `INFO` | Structured logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| `JOB_RUNNER_DOCS_ENABLED` | `false` | Enables `/docs`, `/redoc`, and `/openapi.json` when set to `true`. |
+| `JOB_RUNNER_AUTH_ENABLED` | `false` | Enables API key authentication for `/jobs` business endpoints. |
+| `JOB_RUNNER_AUTH_API_KEYS` | empty | Comma-separated accepted `X-API-Key` values when API auth is enabled. |
+| `JOB_RUNNER_DATABASE_URL` | `postgresql+asyncpg://localhost:5432/job_runner` | Async SQLAlchemy database URL for Alembic and repositories. |
 | `JOB_RUNNER_REDIS_URL` | `redis://localhost:6379/0` | Redis URL used by the queue abstraction for job-ID dispatch signals. |
-| `JOB_RUNNER_WORKER_ID` | `local-worker-1` | Worker identity recorded on claimed job leases and worker logs. |
+| `JOB_RUNNER_WORKER_ID` | `local-worker-1` | Worker identity recorded on claimed leases and worker logs. |
 | `JOB_RUNNER_JOB_LEASE_SECONDS` | `60` | Lease duration assigned when a worker claims a queued job. |
 | `JOB_RUNNER_JOB_POLL_SECONDS` | `1` | Redis polling timeout used by the worker loop. |
-| `JOB_RUNNER_WORKER_METRICS_ENABLED` | `false` | Enables the worker's lightweight Prometheus metrics HTTP server when set to `true`. |
-| `JOB_RUNNER_WORKER_METRICS_HOST` | `127.0.0.1` | Bind host for the worker metrics server; Compose overrides this to `0.0.0.0` for Prometheus scraping inside the local network. |
-| `JOB_RUNNER_WORKER_METRICS_PORT` | `8001` | TCP port for the worker metrics server. |
+| `JOB_RUNNER_WORKER_METRICS_ENABLED` | `false` | Enables the worker's lightweight Prometheus metrics HTTP server. |
+| `JOB_RUNNER_WORKER_METRICS_HOST` | `127.0.0.1` | Worker metrics bind host; Compose uses `0.0.0.0` inside the local network. |
+| `JOB_RUNNER_WORKER_METRICS_PORT` | `8001` | Worker metrics TCP port. |
 
-Optional API key authentication is disabled by default for local exploration. When `JOB_RUNNER_AUTH_ENABLED=true`, all `/jobs` business endpoints require an `X-API-Key` header that matches one comma-separated value in `JOB_RUNNER_AUTH_API_KEYS`. Missing or invalid keys return `401 Unauthorized`. System endpoints (`/healthz`, `/readyz`, and `/metrics`) remain unprotected so orchestrators and Prometheus can probe them.
+`max_attempts` is submitted per job in the `POST /jobs` request body and defaults to `3` in the schema/domain layer.
 
-The ASGI application factory is `job_runner_platform.api.app:create_app`, and the default app object is `job_runner_platform.api.app:app`.
+When `JOB_RUNNER_AUTH_ENABLED=true`, all `/jobs` endpoints require an `X-API-Key` header matching one configured value. System endpoints (`/healthz`, `/readyz`, and `/metrics`) remain unprotected for local orchestration and Prometheus scraping.
 
-## Job domain model
+## API surface
 
-The job schema layer defines the public API contract for safe demo jobs. Supported job types are allowlisted values only: `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`. Job statuses are explicit: `queued`, `running`, `succeeded`, `failed`, `cancel_requested`, `cancelled`, and `dead_lettered`.
-
-Job request/response schemas cover creation, detail views, list pages, cancellation responses, idempotency keys, attempts/max attempts, JSON payload/result fields, errors, timestamps, and lease metadata. The PostgreSQL `jobs` table mirrors those fields, with indexes for status, creation time, idempotency keys, and lease expiry. An internal repository layer owns SQLAlchemy access for creation, fetching/listing, idempotency lookup, cancellation requests, worker claim/complete/fail/dead-letter/requeue transitions, and stale lease lookup. A service layer coordinates repository writes with queue dispatch signals for create/get/list/cancel workflows, and thin FastAPI routes expose those service methods without direct database or Redis calls.
-
-## Safe built-in job handlers
-
-The handler registry contains exactly the allowlisted demo handlers. Handlers validate their JSON payload shape, never run shell commands or subprocesses, and never read from or mutate the host filesystem.
-
-| Handler | Payload shape |
+| Method and path | Behaviour |
 | --- | --- |
-| `echo` | Any JSON object, returned as `{ "payload": ... }`. |
-| `sleep` | `{ "seconds": 0.5 }`, bounded to `0` through `5.0` seconds; observes cancellation between short async sleep intervals. |
-| `checksum` | `{ "text": "hello", "algorithm": "sha256" }`; `algorithm` is optional and only `sha256` is supported. |
-| `fail_once` | `{}`; first attempt fails safely, later attempts succeed. |
-| `always_fail` | `{}`; always fails safely for future dead-letter demos. |
+| `GET /healthz` | Liveness metadata for the API process without dependency checks. |
+| `GET /readyz` | PostgreSQL and Redis readiness checks; returns `503` when a dependency is unavailable. |
+| `GET /metrics` | Prometheus text exposition for API, queue, worker, and job lifecycle metrics. |
+| `POST /jobs` | Creates a queued allowlisted job. Idempotency-key replays return the existing job with `idempotency_replayed: true`. |
+| `GET /jobs?limit=50&offset=0&status=queued` | Lists jobs with bounded pagination and an optional status filter. |
+| `GET /jobs/{job_id}` | Fetches one job by UUID or returns `404`. |
+| `POST /jobs/{job_id}/cancel` | Cancels queued jobs or requests cooperative cancellation for running jobs; terminal jobs return `409`. |
 
-See [`docs/job-handlers.md`](docs/job-handlers.md) for result shapes and limits.
+All HTTP responses include `X-Request-ID`. Incoming request IDs are propagated; otherwise the API generates a UUID.
 
-## Job service layer
+Example job creation body:
 
-`JobService` contains the current business workflow for safe job submission and cancellation. It validates job types against the allowlist, persists new jobs through `JobRepository`, publishes Redis dispatch signals through the queue abstraction, returns existing jobs on idempotency-key replay without publishing duplicate signals, lists jobs with bounded pagination, and rejects cancellation of terminal jobs with a service-layer conflict error. Queued cancellations move directly to `cancelled`; running jobs move to `cancel_requested` so workers can observe the request and transition them to the terminal `cancelled` state.
+```json
+{
+  "job_type": "checksum",
+  "payload": {"text": "hello", "algorithm": "sha256"},
+  "max_attempts": 3,
+  "idempotency_key": "demo-checksum-1"
+}
+```
 
-## Queue dispatch abstraction
+## Safe job handlers
 
-Redis is used only as a dispatch signal for persisted job IDs; PostgreSQL remains the source of truth for job state. The queue abstraction supports enqueue, dequeue/poll, acknowledgement, and readiness checks while hiding Redis calls from services/workers. Duplicate job-ID messages are tolerated because workers must claim the job through the repository before running it, so an already-claimed or terminal row is safely ignored.
+The handler registry contains exactly these allowlisted demo handlers. They validate JSON payloads, never run shell commands or subprocesses, and never read from or mutate the host filesystem.
 
-See [`docs/decisions/0002-redis-as-dispatch-signal.md`](docs/decisions/0002-redis-as-dispatch-signal.md) for the design record.
+| Handler | Payload shape | Result/failure behaviour |
+| --- | --- | --- |
+| `echo` | Any JSON object. | Returns the payload. |
+| `sleep` | `{ "seconds": 0.5 }`, bounded from `0` through `5.0`. | Sleeps cooperatively and observes cancellation between short intervals. |
+| `checksum` | `{ "text": "hello", "algorithm": "sha256" }`; algorithm is optional and only `sha256` is supported. | Returns a deterministic checksum. |
+| `fail_once` | `{}` | Fails on the first attempt, then succeeds on a retry. |
+| `always_fail` | `{}` | Always fails safely so dead-letter behaviour can be demonstrated. |
 
-## Worker runtime
+See [`docs/job-handlers.md`](docs/job-handlers.md) for full payload and result details.
 
-The worker CLI is available as `job-runner-worker` or `python -m job_runner_platform.worker`. It recovers stale leases, polls Redis for job ID dispatch signals, claims queued jobs through the service/repository path, runs only the safe allowlisted built-in handlers, records successful results, requeues retryable failures, marks exhausted jobs `dead_lettered` in PostgreSQL, records requested cancellations as `cancelled`, acknowledges duplicate/obsolete signals safely, and logs lifecycle events with `worker_id` and `job_id` fields.
+## Worker instructions
 
-Local run flow once PostgreSQL and Redis are available:
+The worker CLI is available as `job-runner-worker` or `python -m job_runner_platform.worker`. With PostgreSQL and Redis available outside Compose:
 
 ```bash
 export JOB_RUNNER_DATABASE_URL=postgresql+asyncpg://localhost:5432/job_runner
 export JOB_RUNNER_REDIS_URL=redis://localhost:6379/0
 uv run alembic upgrade head
 uv run job-runner-worker          # long-running worker
-uv run job-runner-worker --once   # process at most one signal, then exit
+uv run job-runner-worker --once   # process at most one dispatch signal, then exit
 ```
 
-Set `JOB_RUNNER_WORKER_METRICS_ENABLED=true` to expose the worker process metrics endpoint on `JOB_RUNNER_WORKER_METRICS_HOST:JOB_RUNNER_WORKER_METRICS_PORT`. Docker Compose enables this on the internal worker port `8001` so Prometheus can scrape both API and worker processes.
+The worker loop:
 
-Shutdown is cooperative: `SIGINT`/`SIGTERM` ask the worker to stop between jobs. If a safe handler is already running, the worker lets it finish and records the outcome before exiting. Job cancellation is also cooperative: queued jobs are terminally `cancelled`, running jobs become `cancel_requested`, and handlers that can safely pause (currently `sleep`) check for that request between short async intervals before the worker records the terminal `cancelled` state. On handler failure, jobs are requeued while attempts remain and are marked `dead_lettered` after `max_attempts`. Each worker loop also recovers expired `running` leases: jobs with attempts remaining are requeued and re-signalled, while exhausted jobs are marked `dead_lettered`.
+1. recovers stale `running` leases,
+2. polls Redis for a persisted job ID,
+3. claims a queued row in PostgreSQL with a worker lease,
+4. runs only the allowlisted handler,
+5. records success, retry, dead-letter, or cancellation state in PostgreSQL, and
+6. safely ignores duplicate or obsolete queue messages.
 
-See [`docs/decisions/0004-leases-and-stale-job-recovery.md`](docs/decisions/0004-leases-and-stale-job-recovery.md) for the lease recovery design record.
+`SIGINT` and `SIGTERM` request a cooperative stop between jobs. If worker metrics are enabled with `JOB_RUNNER_WORKER_METRICS_ENABLED=true`, the worker exposes Prometheus metrics on `JOB_RUNNER_WORKER_METRICS_HOST:JOB_RUNNER_WORKER_METRICS_PORT`. Docker Compose enables this on port `8001` for Prometheus scraping.
 
-## Database migrations
+## Observability
 
-Alembic is configured at `alembic.ini` with migration scripts in `migrations/`. The initial revision creates the PostgreSQL source-of-truth `jobs` table.
+- Structured API and worker logs are JSON.
+- `X-Request-ID` is propagated on every HTTP response.
+- `GET /readyz` reports PostgreSQL and Redis readiness separately.
+- `GET /metrics` exposes Prometheus metrics without requiring database or Redis access.
+- Docker Compose includes Prometheus and Grafana provisioning for local demos.
 
-```bash
-JOB_RUNNER_DATABASE_URL=postgresql+asyncpg://localhost:5432/job_runner uv run alembic upgrade head
-```
-
-The Docker Compose API service runs this migration command automatically during local container startup after PostgreSQL is healthy. For manually managed databases, run the command directly from your shell.
-
-## API surface
-
-- `GET /healthz` returns liveness metadata for the API process without dependency checks.
-- `GET /readyz` checks PostgreSQL with a minimal readiness query and Redis through the queue abstraction. It returns `200 OK` with `status: ready` when both dependencies are available and `503 Service Unavailable` with per-dependency statuses when either check fails.
-- `GET /metrics` returns Prometheus text exposition for API request, worker polling, queue polling, and job lifecycle metrics.
-- `/jobs` business endpoints are unauthenticated by default. When `JOB_RUNNER_AUTH_ENABLED=true`, they require `X-API-Key` while `/healthz`, `/readyz`, and `/metrics` remain open.
-- `POST /jobs` creates a queued allowlisted job and returns `201 Created`. If an idempotency key replays an existing submission, the response is `200 OK` with `idempotency_replayed: true`.
-- `GET /jobs?limit=50&offset=0&status=queued` lists jobs with bounded pagination and an optional status filter.
-- `GET /jobs/{job_id}` returns one job or a clear `404` when it does not exist.
-- `POST /jobs/{job_id}/cancel` cancels a queued job or requests cancellation for a running job. Missing jobs return `404`; terminal jobs return `409 Conflict`.
-- All HTTP responses include `X-Request-ID`; an incoming value is propagated and a UUID is generated when the header is absent.
-- Swagger/ReDoc/OpenAPI routes are disabled by default for safer public-facing defaults.
-
-The job API, optional API key authentication, readiness checks, and metrics instrumentation use PostgreSQL and Redis through service, repository/database, queue, and observability layers. Safe handlers, the worker runtime, retry, dead-letter behaviour, cancellation, stale lease recovery, Prometheus metric exposition, and a local Docker Compose stack are implemented and unit-tested.
-
-## Observability metrics
-
-`GET /metrics` exposes Prometheus text metrics without requiring PostgreSQL or Redis access. The endpoint includes API request counters/histograms plus job lifecycle counters and a worker job-duration histogram:
+Key implemented metric families include:
 
 - `jobs_created_total`
 - `jobs_started_total`
@@ -215,22 +223,47 @@ The job API, optional API key authentication, readiness checks, and metrics inst
 - `jobs_dead_lettered_total`
 - `jobs_cancelled_total`
 - `job_duration_seconds`
+- `api_requests_total`
+- `api_request_duration_seconds`
+- `worker_polls_total`
+- `queue_polls_total`
 
-Additional implemented metrics include `api_requests_total`, `api_request_duration_seconds`, `worker_polls_total`, and `queue_polls_total`. In Docker Compose, Prometheus scrapes the API at `api:8000/metrics` and the worker at `worker:8001/metrics`; Grafana provisions a Prometheus data source plus a **Job Runner Platform** dashboard. See [`docs/observability.md`](docs/observability.md) for local observability URLs and dashboard notes.
+See [`docs/observability.md`](docs/observability.md) for local Prometheus/Grafana details.
 
-## Quality gate
+## Testing and quality gates
 
-`scripts/quality-gate.sh` currently runs:
+`scripts/quality-gate.sh` runs the same checks expected before every ticket is committed:
 
-- shell syntax checks for repository scripts
-- `scripts/check-public-safety.sh` for obvious public-safety risks such as real-looking secrets, accidental `.env` files, internal hostnames, and locally configured forbidden private terms
-- `scripts/check-architecture-boundaries.sh` for obvious route-to-database, route-to-repository, route-to-queue, and route-to-Redis boundary violations
-- `uv sync`
+- shell syntax checks for scripts
+- `scripts/check-public-safety.sh` for obvious public-safety risks such as committed `.env` files, real-looking secrets, internal hostnames, and locally configured forbidden private terms
+- `scripts/check-architecture-boundaries.sh` for obvious route-to-database, route-to-repository, route-to-queue, and route-to-Redis violations
+- `uv sync --locked --all-groups`
 - Ruff lint checks
 - Ruff format checks
 - mypy in strict mode
 - pytest with coverage
 
-Private/employer-specific term checks can be configured locally with the ignored `.public-safety-forbidden-terms` or `.public-safety-denylist` file, or via the `JOB_RUNNER_PUBLIC_SAFETY_FORBIDDEN_TERMS` environment variable. Do not commit private terms.
+GitHub Actions CI is defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It uses Python 3.12, installs dependencies with uv, runs both guardrails, validates `docker compose config`, applies Alembic migrations against a PostgreSQL service container, and runs Ruff, mypy, and pytest.
 
-GitHub Actions CI is defined in `.github/workflows/ci.yml`. It uses Python 3.12, installs dependencies with `uv sync --locked --all-groups`, runs shell syntax checks, runs both guardrail scripts, validates `docker compose config`, applies Alembic migrations against a PostgreSQL service container, and runs the same Ruff, mypy, and pytest checks.
+Private forbidden-term checks can be configured locally with ignored files such as `.public-safety-forbidden-terms` or via `JOB_RUNNER_PUBLIC_SAFETY_FORBIDDEN_TERMS`. Do not commit private terms.
+
+## Architecture and documentation links
+
+- [`docs/README.md`](docs/README.md) — documentation index.
+- [`docs/architecture.md`](docs/architecture.md) — architecture, boundaries, state transitions, reliability model, observability, and limitations.
+- [`docs/api-walkthrough.md`](docs/api-walkthrough.md) — curl-based API walkthrough.
+- [`docs/operations.md`](docs/operations.md) — local operation, configuration, migrations, readiness, observability, and troubleshooting.
+- [`docs/runbook.md`](docs/runbook.md) — operational runbook and failure-mode response notes.
+- [`docs/job-handlers.md`](docs/job-handlers.md) — allowlisted handler payloads and result shapes.
+- [`docs/demo-smoke.md`](docs/demo-smoke.md) — local smoke demo script documentation.
+- [`docs/decisions/README.md`](docs/decisions/README.md) — accepted ADRs for PostgreSQL as source of truth, Redis dispatch signalling, allowlisted handlers, and leases/stale recovery.
+
+## Limitations
+
+- The Docker Compose stack is for local portfolio demos and is not a hardened production deployment.
+- Compose and CI use public-safe placeholder configuration, not production secrets.
+- Redis dispatch acknowledgement is intentionally simple; a popped signal can be lost before claim, leaving a durable queued row that would need a future reconciliation pass.
+- Metrics are process-local; production multi-worker deployments would need environment-specific labels, aggregation, and alerting.
+- Worker leases do not heartbeat or extend during work. Demo handlers are bounded, so `JOB_RUNNER_JOB_LEASE_SECONDS` should be longer than expected handler runtime.
+- Priority is persisted and validated, but current claiming is primarily FIFO-by-dispatch signal and row state.
+- Optional API key auth is lightweight and intended only for local/portfolio demonstration.

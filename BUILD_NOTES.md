@@ -2,7 +2,7 @@
 
 ## Current state
 
-Tickets 000 through 022 are complete. The repository now has the initial Python
+Tickets 000 through 023 are complete. The repository now has the initial Python
 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode,
 pytest, pytest-cov, documentation directories, public-safe example
 configuration, a reusable quality gate, a FastAPI application shell, explicit
@@ -17,21 +17,24 @@ Prometheus metrics exposition, optional API key authentication for business job
 endpoints, a local Docker Compose stack, local Prometheus/Grafana observability
 configuration, GitHub Actions CI, automation guardrail scripts, completed core
 architecture/operations/runbook/API walkthrough documentation, the required
-architecture decision records, and a local smoke demo script.
+architecture decision records, a local smoke demo script, and a polished final
+README for portfolio review.
 
-Ticket 022 added:
+Ticket 023 added:
 
-- `scripts/demo-smoke.sh`, an executable local-only smoke demo that checks API
-  health/readiness, creates `echo` and `checksum` jobs, observes `fail_once`
-  retry behaviour, observes `always_fail` dead-letter behaviour, cancels a
-  running bounded `sleep` job, and verifies key Prometheus metric families.
-- `docs/demo-smoke.md`, documenting prerequisites, local-only script settings,
-  the demonstrated flow, safety boundaries, and troubleshooting notes.
-- README and docs index links to the smoke demo so local portfolio walkthroughs
-  can discover it after starting Docker Compose.
-- `tests/test_demo_smoke_script.py`, covering script presence/executability,
-  required job/metrics/status flows, absence of obvious arbitrary-execution
-  shell patterns, and documentation links.
+- A rewritten `README.md` opening that clearly frames the project as a
+  public-safe backend/platform portfolio implementation using FastAPI,
+  PostgreSQL, Redis, worker leases, retries, dead-letter handling, cancellation,
+  structured logs, Prometheus metrics, Docker Compose, CI, tests, runbooks, and
+  ADRs.
+- Explicit README sections for portfolio framing, implemented scope,
+  public-safety constraints, out-of-scope work, requirements, quick start,
+  local development, configuration, API surface, safe handlers, worker
+  instructions, observability, testing/quality gates, architecture links, and
+  limitations.
+- `tests/test_readme_polish.py`, which asserts the ticket 023 README sections,
+  first-screen portfolio signals, documented configuration variables, API
+  endpoint coverage, core documentation links, and public-safety boundaries.
 
 ## Quality gates
 
@@ -46,12 +49,14 @@ Latest run:
   - `uv run ruff format --check .`
   - `uv run mypy src tests`
   - `uv run pytest --cov=job_runner_platform --cov-report=term-missing`
-    (`110 passed`)
+    (`115 passed`)
 
 Additional validation this cycle:
 
-- `bash -n scripts/demo-smoke.sh` — passed.
-- `uv run pytest tests/test_demo_smoke_script.py -q` — passed (`4 passed`).
+- `uv run pytest tests/test_readme_polish.py -q` — passed (`5 passed`).
+- `uv run ruff check tests/test_readme_polish.py` — passed.
+- `uv run ruff format --check tests/test_readme_polish.py` — passed.
+- `uv run mypy tests/test_readme_polish.py` — passed.
 
 ## Public-safety notes
 
@@ -63,9 +68,10 @@ non-public architecture, or anything implying employer endorsement.
 Do not implement arbitrary shell command execution. Jobs must be safe
 allowlisted demo handlers only.
 
-The smoke demo submits only public-safe built-in handler names and JSON payloads
-through the local API. It does not send shell commands, scripts, container
-images, subprocess requests, file paths, or user-provided code as jobs.
+The README now reiterates the safety boundary in the first screen and in the
+public-safety/out-of-scope sections. The ticket did not add runtime behaviour,
+new job types, external integrations, secrets, private data, or arbitrary
+execution features.
 
 The Compose stack and CI PostgreSQL service use local placeholder values only.
 They are development/demo settings, not a production security baseline. The
@@ -74,25 +80,20 @@ files or an environment variable; do not commit those private terms.
 
 ## Latest cycle notes
 
-- Implemented only ticket 022; final README polish and final autonomous review
-  remain future tickets.
+- Implemented only ticket 023; final autonomous review and completion marker
+  remain future ticket 024.
 - Preserved runtime architecture and job execution behaviour: no route, service,
   repository, queue, worker, handler, migration, Compose, or CI implementation
   code changed for this ticket.
 - Preserved public-safety constraints: no employer/private details, external
   secrets, arbitrary user-submitted commands, subprocess job handlers, or host
   filesystem mutation features were added.
-- The smoke demo assumes the local Docker Compose stack is already running and
-  healthy; it is not wired into the automated quality gate because it requires
-  live local PostgreSQL, Redis, API, and worker services.
+- The README now points reviewers to the architecture, operations, runbook, API
+  walkthrough, job handler, observability, smoke demo, and ADR documentation.
 
 ## Limitations
 
-The smoke demo is a local portfolio walkthrough, not a production validation or
-load test. It uses the Compose API URL by default, requires `curl` and `python3`
-on the host running it, and depends on a healthy worker to progress queued jobs.
-If API key auth is enabled locally, the caller must provide a local demo key with
-`JOB_RUNNER_DEMO_API_KEY`.
+This ticket was documentation-focused and does not change runtime limitations.
 
 The Docker Compose stack remains local-only and uses placeholder settings.
 Metrics remain process-local, worker leases do not heartbeat, queued-row
@@ -109,4 +110,4 @@ private employer-specific terms.
 
 ## Next recommended ticket
 
-Ticket 023.
+Ticket 024.
