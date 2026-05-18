@@ -73,6 +73,14 @@ curl -X POST http://127.0.0.1:8000/jobs \
   -d '{"job_type":"echo","payload":{"message":"hello from compose"}}'
 ```
 
+Run the local smoke demo after Compose is healthy to create echo/checksum jobs, observe retry and dead-letter behaviour, cancel a sleep job, and check metrics:
+
+```bash
+scripts/demo-smoke.sh
+```
+
+See [`docs/demo-smoke.md`](docs/demo-smoke.md) for the script flow and optional local-only settings.
+
 Useful local commands:
 
 ```bash

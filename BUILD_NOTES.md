@@ -2,7 +2,7 @@
 
 ## Current state
 
-Tickets 000 through 021 are complete. The repository now has the initial Python
+Tickets 000 through 022 are complete. The repository now has the initial Python
 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode,
 pytest, pytest-cov, documentation directories, public-safe example
 configuration, a reusable quality gate, a FastAPI application shell, explicit
@@ -16,23 +16,22 @@ cancellation handling, API readiness checks for PostgreSQL and Redis,
 Prometheus metrics exposition, optional API key authentication for business job
 endpoints, a local Docker Compose stack, local Prometheus/Grafana observability
 configuration, GitHub Actions CI, automation guardrail scripts, completed core
-architecture/operations/runbook/API walkthrough documentation, and the required
-architecture decision records.
+architecture/operations/runbook/API walkthrough documentation, the required
+architecture decision records, and a local smoke demo script.
 
-Ticket 021 added:
+Ticket 022 added:
 
-- `docs/decisions/0001-postgres-source-of-truth.md`, documenting PostgreSQL as
-  the durable source of truth for jobs, idempotency, attempts, leases, results,
-  and lifecycle state.
-- `docs/decisions/0003-allowlisted-demo-job-handlers.md`, documenting the
-  public-safe built-in handler allowlist and the deliberate exclusion of
-  arbitrary command, code, container, subprocess, or host-operation execution.
-- An updated `docs/decisions/README.md` linking all required ADRs: PostgreSQL
-  source of truth, Redis dispatch signal, allowlisted demo handlers, and leases
-  with stale recovery.
-- Expanded documentation tests in `tests/test_documentation.py` that assert all
-  required ADR files exist, include the expected `Status`, `Context`,
-  `Decision`, and `Consequences` sections, and are linked from the ADR index.
+- `scripts/demo-smoke.sh`, an executable local-only smoke demo that checks API
+  health/readiness, creates `echo` and `checksum` jobs, observes `fail_once`
+  retry behaviour, observes `always_fail` dead-letter behaviour, cancels a
+  running bounded `sleep` job, and verifies key Prometheus metric families.
+- `docs/demo-smoke.md`, documenting prerequisites, local-only script settings,
+  the demonstrated flow, safety boundaries, and troubleshooting notes.
+- README and docs index links to the smoke demo so local portfolio walkthroughs
+  can discover it after starting Docker Compose.
+- `tests/test_demo_smoke_script.py`, covering script presence/executability,
+  required job/metrics/status flows, absence of obvious arbitrary-execution
+  shell patterns, and documentation links.
 
 ## Quality gates
 
@@ -47,11 +46,12 @@ Latest run:
   - `uv run ruff format --check .`
   - `uv run mypy src tests`
   - `uv run pytest --cov=job_runner_platform --cov-report=term-missing`
-    (`106 passed`)
+    (`110 passed`)
 
 Additional validation this cycle:
 
-- `uv run pytest tests/test_documentation.py -q` — passed (`5 passed`).
+- `bash -n scripts/demo-smoke.sh` — passed.
+- `uv run pytest tests/test_demo_smoke_script.py -q` — passed (`4 passed`).
 
 ## Public-safety notes
 
@@ -63,6 +63,10 @@ non-public architecture, or anything implying employer endorsement.
 Do not implement arbitrary shell command execution. Jobs must be safe
 allowlisted demo handlers only.
 
+The smoke demo submits only public-safe built-in handler names and JSON payloads
+through the local API. It does not send shell commands, scripts, container
+images, subprocess requests, file paths, or user-provided code as jobs.
+
 The Compose stack and CI PostgreSQL service use local placeholder values only.
 They are development/demo settings, not a production security baseline. The
 public-safety guardrail supports private forbidden-term lists via ignored local
@@ -70,26 +74,31 @@ files or an environment variable; do not commit those private terms.
 
 ## Latest cycle notes
 
-- Implemented only the ADR documentation scope required by ticket 021; smoke/demo
-  scripts, final README polish, and final repository review remain future
-  tickets.
-- Preserved runtime architecture and job execution behaviour: no route,
-  service, repository, queue, worker, handler, migration, Compose, or CI
-  implementation code changed for this documentation ticket.
+- Implemented only ticket 022; final README polish and final autonomous review
+  remain future tickets.
+- Preserved runtime architecture and job execution behaviour: no route, service,
+  repository, queue, worker, handler, migration, Compose, or CI implementation
+  code changed for this ticket.
 - Preserved public-safety constraints: no employer/private details, external
   secrets, arbitrary user-submitted commands, subprocess job handlers, or host
   filesystem mutation features were added.
-- Added lightweight ADR coverage tests to keep the required decision records and
-  ADR index links from regressing.
+- The smoke demo assumes the local Docker Compose stack is already running and
+  healthy; it is not wired into the automated quality gate because it requires
+  live local PostgreSQL, Redis, API, and worker services.
 
 ## Limitations
 
-The ADRs describe the current local portfolio/demo behaviour; they are not a
-production operations, security, backup, or alerting baseline. The Docker Compose
-stack remains local-only and uses placeholder settings. Metrics remain
-process-local, worker leases do not heartbeat, queued-row reconciliation for lost
-Redis signals is not implemented, API readiness does not verify worker
-availability, and the Grafana dashboard remains intentionally basic.
+The smoke demo is a local portfolio walkthrough, not a production validation or
+load test. It uses the Compose API URL by default, requires `curl` and `python3`
+on the host running it, and depends on a healthy worker to progress queued jobs.
+If API key auth is enabled locally, the caller must provide a local demo key with
+`JOB_RUNNER_DEMO_API_KEY`.
+
+The Docker Compose stack remains local-only and uses placeholder settings.
+Metrics remain process-local, worker leases do not heartbeat, queued-row
+reconciliation for lost Redis signals is not implemented, API readiness does not
+verify worker availability, and the Grafana dashboard remains intentionally
+basic.
 
 The guardrails are intentionally lightweight static checks. They catch obvious
 public-safety and route-layering mistakes, but they are not a substitute for
@@ -100,4 +109,4 @@ private employer-specific terms.
 
 ## Next recommended ticket
 
-Ticket 022.
+Ticket 023.

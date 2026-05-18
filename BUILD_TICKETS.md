@@ -684,7 +684,7 @@ Commit when complete.
 
 ## 022 — Add smoke/demo scripts
 
-Status: TODO
+Status: DONE
 
 Add safe local demo scripts or documented curl walkthroughs showing:
 
