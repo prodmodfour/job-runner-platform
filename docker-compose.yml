@@ -12,7 +12,6 @@ x-app-environment: &app-environment
   JOB_RUNNER_REDIS_URL: redis://redis:6379/0
   JOB_RUNNER_JOB_LEASE_SECONDS: "60"
   JOB_RUNNER_JOB_POLL_SECONDS: "1"
-  JOB_RUNNER_MAX_ATTEMPTS: "3"
 
 services:
   api:
