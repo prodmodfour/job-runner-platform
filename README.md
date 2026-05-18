@@ -6,13 +6,13 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, and FastAPI job routes for those workflows. Worker runtime, retries, cancellation handling in workers, leases recovery loops, metrics, Docker Compose, and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, and safe built-in demo job handlers. Worker runtime, retries, cancellation handling in workers, leases recovery loops, metrics, Docker Compose, and CI will be added in later tickets.
 
 ## Public-safety constraints
 
 This project must not include employer code, private data, internal URLs or hostnames, credentials, tokens, screenshots of private systems, non-public architecture, or anything implying employer endorsement.
 
-The platform must not implement arbitrary shell command execution. Future jobs are limited to safe allowlisted demo handlers such as `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`.
+The platform must not implement arbitrary shell command execution. Jobs are limited to safe allowlisted demo handlers such as `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`.
 
 ## Backend/platform skills demonstrated
 
@@ -82,6 +82,20 @@ The job schema layer defines the public API contract for safe demo jobs. Support
 
 Job request/response schemas cover creation, detail views, list pages, cancellation responses, idempotency keys, attempts/max attempts, JSON payload/result fields, errors, timestamps, and lease metadata. The PostgreSQL `jobs` table mirrors those fields, with indexes for status, creation time, idempotency keys, and lease expiry. An internal repository layer owns SQLAlchemy access for creation, fetching/listing, idempotency lookup, cancellation requests, worker claim/complete/fail/dead-letter/requeue transitions, and stale lease lookup. A service layer coordinates repository writes with queue dispatch signals for create/get/list/cancel workflows, and thin FastAPI routes expose those service methods without direct database or Redis calls.
 
+## Safe built-in job handlers
+
+The handler registry contains exactly the allowlisted demo handlers. Handlers validate their JSON payload shape, never run shell commands or subprocesses, and never read from or mutate the host filesystem.
+
+| Handler | Payload shape |
+| --- | --- |
+| `echo` | Any JSON object, returned as `{ "payload": ... }`. |
+| `sleep` | `{ "seconds": 0.5 }`, bounded to `0` through `5.0` seconds. |
+| `checksum` | `{ "text": "hello", "algorithm": "sha256" }`; `algorithm` is optional and only `sha256` is supported. |
+| `fail_once` | `{}`; first attempt fails safely, later attempts succeed. |
+| `always_fail` | `{}`; always fails safely for future dead-letter demos. |
+
+See [`docs/job-handlers.md`](docs/job-handlers.md) for result shapes and limits.
+
 ## Job service layer
 
 `JobService` contains the current business workflow for safe job submission and cancellation. It validates job types against the allowlist, persists new jobs through `JobRepository`, publishes Redis dispatch signals through the queue abstraction, returns existing jobs on idempotency-key replay without publishing duplicate signals, lists jobs with bounded pagination, and rejects cancellation of terminal jobs with a service-layer conflict error. Queued cancellations currently move directly to `cancelled`; running jobs move to `cancel_requested` for future cooperative worker handling.
@@ -112,7 +126,7 @@ A local PostgreSQL service is not yet provided by this repository; Docker Compos
 - All HTTP responses include `X-Request-ID`; an incoming value is propagated and a UUID is generated when the header is absent.
 - Swagger/ReDoc/OpenAPI routes are disabled by default for safer public-facing defaults.
 
-The job API uses PostgreSQL and Redis through the service, repository, and queue layers. A local Docker Compose stack and worker process are not available yet, so local end-to-end job execution is still future work.
+The job API uses PostgreSQL and Redis through the service, repository, and queue layers. Safe handlers are implemented and unit-tested, but a local Docker Compose stack and worker process are not available yet, so local end-to-end job execution is still future work.
 
 ## Quality gate
 

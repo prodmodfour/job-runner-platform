@@ -310,7 +310,7 @@ Commit when complete.
 
 ## 008 — Add safe allowlisted job handlers
 
-Status: TODO
+Status: DONE
 
 Implement job handlers:
 

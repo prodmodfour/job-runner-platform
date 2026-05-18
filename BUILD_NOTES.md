@@ -2,16 +2,15 @@
 
 ## Current state
 
-Tickets 000 through 007 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, PostgreSQL persistence scaffolding with Alembic migrations, an internal repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, and FastAPI job routes for those workflows.
+Tickets 000 through 008 are complete. The repository now has the initial Python 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode, pytest, pytest-cov, documentation directories, public-safe example configuration, a reusable quality gate, a FastAPI application shell, explicit job domain/API schemas, PostgreSQL persistence scaffolding with Alembic migrations, an internal repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, and safe allowlisted built-in demo job handlers.
 
-Ticket 007 added:
+Ticket 008 added:
 
-- Thin FastAPI job routes for `POST /jobs`, `GET /jobs`, `GET /jobs/{job_id}`, and `POST /jobs/{job_id}/cancel`.
-- API dependency wiring that lazily builds the SQLAlchemy session factory and Redis queue, then constructs `JobService` with `JobRepository` so route handlers do not query the database or call Redis directly.
-- Response conversion through the existing Pydantic API schemas, including `from_attributes` support for repository/service job records.
-- HTTP behaviour for `201 Created` on new job submission, `200 OK` on idempotency replay, bounded pagination with optional status filtering, clear `404` responses for missing jobs, and `409 Conflict` for terminal-state cancellation conflicts.
-- API tests covering creation, idempotency replay, listing with pagination/status filter, fetch by ID, missing job handling, cancellation success/conflict/not-found behaviour, and request validation before service calls.
-- README updates documenting the exposed job API surface and current local limitations.
+- A `job_runner_platform.handlers` package with an async handler registry for exactly the allowlisted job types: `echo`, `sleep`, `checksum`, `fail_once`, and `always_fail`.
+- Safe handler payload validation, JSON-serializable payload checks, a bounded `sleep` duration, SHA-256 checksum handling over supplied UTF-8 text only, and deterministic demo failure handlers for future retry/dead-letter work.
+- Handler execution/context error types for future worker integration without introducing a worker runtime in this ticket.
+- Unit tests covering each handler, registry coverage, bounded sleep validation, fail-once behaviour, always-fail behaviour, unknown handler rejection, non-JSON payload rejection, and context attempt validation.
+- Handler payload/result documentation in `docs/job-handlers.md`, linked from `docs/README.md` and summarized in `README.md`.
 
 ## Quality gates
 
@@ -27,10 +26,10 @@ Latest run:
 
 Additional validation this cycle:
 
-- `uv run ruff check .` — passed.
+- `uv run ruff check .` — passed after formatting fixes.
 - `uv run ruff format --check .` — passed.
 - `uv run mypy src tests` — passed.
-- `uv run pytest -q` — passed.
+- `uv run pytest -q` — passed (`56 passed`).
 
 ## Public-safety notes
 
@@ -42,15 +41,15 @@ Do not implement arbitrary shell command execution. Jobs must be safe allowliste
 
 ## Latest cycle notes
 
-- Implemented only the API routes required by ticket 007; no job handlers, worker runtime, retry/dead-letter logic, readiness endpoint, metrics, auth, Docker Compose stack, or CI were introduced.
-- Preserved the route -> schemas -> services -> repositories -> database/queue boundary. Routes call `JobService` and use Pydantic request/response models; database sessions and Redis queue construction are isolated in API dependency wiring.
-- Job routes expose the already-implemented service workflow. A submitted job is persisted and signalled, but no worker exists yet to execute queued jobs.
-- No arbitrary command execution, subprocess execution, credentials, private details, or employer-specific content were added.
+- Implemented only the safe allowlisted job handlers required by ticket 008; no worker runtime, retry/dead-letter policy, lease recovery, metrics, auth, Docker Compose stack, or CI were introduced.
+- Preserved public-safety constraints: handlers do not run shell commands, subprocesses, containers, user-supplied code, or host filesystem operations.
+- Kept handlers isolated and testable so the future worker can call them after claiming jobs through the repository/service boundary.
+- Documented handler payload shapes and limits without creating the future ADR/runbook tickets early.
 
 ## Limitations
 
-The API now exposes `/jobs` routes and `/healthz`, but `/readyz`, `/metrics`, worker runtime, job handler execution, auth, Docker Compose, and CI remain future tickets. Local end-to-end job execution still requires future worker and handler tickets. Queue dispatch remains a Redis wake-up signal while PostgreSQL remains the durable source of truth. Concurrent idempotent submissions rely on the database unique index as the final guard; future API transaction handling can add retry-on-conflict behaviour if needed.
+Safe handlers are implemented and unit-tested, but no worker process exists yet to dequeue, claim, execute, and record job results. The API exposes `/jobs` routes and `/healthz`, but `/readyz`, `/metrics`, worker runtime, retry/dead-letter orchestration, cancellation checks inside handlers/workers, auth, Docker Compose, and CI remain future tickets. Local end-to-end job execution still requires future worker and runtime tickets.
 
 ## Next recommended ticket
 
-Ticket 008.
+Ticket 009.
