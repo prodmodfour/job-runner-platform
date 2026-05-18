@@ -30,6 +30,28 @@ Error messages are stored as bounded strings with the exception type prefix.
 Stack traces are logged by the worker for unexpected exceptions but are not
 stored in the job record.
 
+## Cancellation handling
+
+Cancellation is persisted in PostgreSQL; Redis messages remain only dispatch
+signals. Cancelling a `queued` job moves it directly to the terminal
+`cancelled` state. A later worker that receives the stale dispatch signal will
+fail to claim the non-queued row, acknowledge the signal, and log a cancellation
+outcome.
+
+Cancelling a `running` job moves it to `cancel_requested` while preserving the
+current lease owner. Workers pass a cooperative cancellation check into safe
+handlers. The `sleep` handler checks between short bounded `asyncio.sleep`
+intervals and raises a safe cancellation error when the request is observed. The
+worker then records the terminal `cancelled` state, clears lease fields, records
+`finished_at`, acknowledges the dispatch signal, and logs `worker_outcome` as
+`cancelled`.
+
+Handlers that finish before noticing a cancellation request are checked again
+before success/failure is recorded. If the request is present, cancellation wins
+and the worker records `cancelled` instead of retrying or succeeding. Handlers
+remain allowlisted demo functions only; cancellation does not introduce shell
+commands, subprocesses, containers, user-provided code, or host-level actions.
+
 ## Lease and stale job recovery
 
 Workers claim queued jobs by setting `lease_owner` and `lease_expires_at` while

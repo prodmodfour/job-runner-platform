@@ -416,7 +416,7 @@ Commit when complete.
 
 ## 012 — Add cancellation behaviour in worker
 
-Status: TODO
+Status: DONE
 
 Implement cancellation checks:
 

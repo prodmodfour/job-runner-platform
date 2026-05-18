@@ -2,7 +2,7 @@
 
 ## Current state
 
-Tickets 000 through 011 are complete. The repository now has the initial Python
+Tickets 000 through 012 are complete. The repository now has the initial Python
 3.12 `src/` package skeleton, uv/hatchling packaging, Ruff, mypy strict mode,
 pytest, pytest-cov, documentation directories, public-safe example
 configuration, a reusable quality gate, a FastAPI application shell, explicit
@@ -11,23 +11,28 @@ migrations, an internal repository layer for job persistence/state transitions,
 a Redis-backed queue abstraction for job-ID dispatch signals, a job service
 layer for create/get/list/cancel workflows, FastAPI job routes for those
 workflows, safe allowlisted built-in demo job handlers, a worker CLI/runtime,
-retry/dead-letter behaviour, and lease-based stale job recovery.
+retry/dead-letter behaviour, lease-based stale job recovery, and cooperative
+worker cancellation handling.
 
-Ticket 011 added:
+Ticket 012 added:
 
-- An explicit `JobWorkerService.recover_stale_jobs()` operation that scans
-  `running` jobs whose `lease_expires_at` has passed.
-- Recovery policy aligned with attempts: stale jobs with remaining attempts are
-  requeued, have lease fields cleared, and receive a fresh Redis dispatch
-  signal; stale jobs that have exhausted `max_attempts` are marked
-  `dead_lettered`.
-- Bounded `StaleLeaseRecovery` error messages persisted on recovered jobs so the
-  recovery reason is visible without storing stack traces or unsafe data.
-- Worker runtime support that runs stale recovery before each queue polling pass.
-- Tests covering stale requeue/signalling, stale dead-lettering after attempts
-  are exhausted, and runtime recovery before queue polling.
-- Documentation in the runbook and
-  `docs/decisions/0004-leases-and-stale-job-recovery.md`.
+- A cooperative cancellation hook on `JobHandlerContext` that lets handlers ask
+  whether their running job has been moved to `cancel_requested` without giving
+  handlers direct database access.
+- A bounded polling loop in the safe `sleep` handler so it can observe
+  cancellation between short `asyncio.sleep` intervals.
+- A repository-owned `mark_cancelled()` transition that moves a worker-owned
+  running or `cancel_requested` job to terminal `cancelled`, clears lease fields,
+  and records `finished_at`.
+- Worker-side cancellation checks before handler execution, after handler
+  completion, and before retry/dead-letter recording so cancellation wins over a
+  late success/failure when the request has been persisted.
+- A distinct `WorkerProcessOutcome.CANCELLED` outcome and structured worker logs
+  for cancelled queued dispatch signals and cooperatively cancelled running jobs.
+- Tests covering queued cancellation dispatch handling, running `sleep`
+  cancellation, handler cancellation polling, and repository cancellation
+  ownership checks.
+- Documentation updates in the README, handler docs, and runbook.
 
 ## Quality gates
 
@@ -43,9 +48,9 @@ Latest run:
 
 Additional validation this cycle before the full gate:
 
-- `uv run pytest tests/test_worker_runtime.py -q` — passed (`9 passed`).
+- `uv run pytest tests/test_job_handlers.py tests/test_job_repository.py tests/test_worker_runtime.py -q` — passed (`27 passed`).
 - `uv run mypy src tests` — passed.
-- `uv run pytest -q` — passed (`65 passed`).
+- `uv run pytest -q` — passed (`68 passed`).
 
 ## Public-safety notes
 
@@ -59,28 +64,31 @@ allowlisted demo handlers only.
 
 ## Latest cycle notes
 
-- Implemented only the lease and stale recovery behaviour required by ticket
-  011; cooperative cancellation inside running handlers, readiness checks,
-  metrics, auth, Docker Compose stack, and CI were not introduced.
-- Preserved public-safety constraints: recovery only updates PostgreSQL job state
-  and publishes job UUID dispatch signals; it does not run shell commands,
-  subprocesses, containers, user-submitted code, or host-level operations.
-- Kept the worker on the intended boundary path: worker runtime -> worker
-  service -> repository/queue -> database/Redis.
-- Stale recovery treats PostgreSQL as the source of truth. Redis is used only to
-  re-signal jobs that are safely moved back to `queued` after the database
-  transaction commits.
+- Implemented only the worker cancellation behaviour required by ticket 012;
+  readiness checks, Prometheus `/metrics`, optional auth, Docker Compose stack,
+  and CI were not introduced.
+- Preserved public-safety constraints: cancellation only reads and updates
+  PostgreSQL job state and acknowledges job UUID dispatch signals; it does not
+  run shell commands, subprocesses, containers, user-submitted code, or
+  host-level operations.
+- Kept cancellation on the intended boundary path: worker runtime -> worker
+  service -> handler context/repository/queue -> database/Redis.
+- PostgreSQL remains the source of truth. Redis still carries only job UUID
+  dispatch signals and may contain stale signals for queued jobs that have
+  already been cancelled; workers acknowledge those safely after the database
+  claim fails.
 
 ## Limitations
 
-The worker can claim queued jobs, run safe handlers, retry failures until
-`max_attempts`, record success, dead-letter exhausted jobs, and recover expired
-`running` leases. Cooperative cancellation checks during running jobs,
-`/readyz`, `/metrics`, optional auth, Docker Compose, and CI remain future
-tickets. Local end-to-end execution currently requires separately managed
-PostgreSQL and Redis services because the Docker Compose stack is not
-implemented yet.
+Worker cancellation is cooperative. Queued jobs cancel immediately, and running
+jobs are marked `cancel_requested` until the worker reaches a cancellation check
+or a result-recording boundary. The `sleep` handler observes cancellation between
+short intervals; other handlers are fast demo handlers and only observe
+cancellation at worker boundaries. Prometheus `/metrics`, `/readyz`, optional
+auth, Docker Compose, and CI remain future tickets. Local end-to-end execution
+currently requires separately managed PostgreSQL and Redis services because the
+Docker Compose stack is not implemented yet.
 
 ## Next recommended ticket
 
-Ticket 012.
+Ticket 013.

@@ -103,8 +103,8 @@ class JobRepository:
         """Request cancellation for a queued or running job.
 
         Queued jobs are moved directly to ``cancelled`` because no worker has
-        started them. Running jobs become ``cancel_requested`` so a future worker
-        cancellation loop can cooperate safely. Terminal jobs are returned
+        started them. Running jobs become ``cancel_requested`` so the owning
+        worker can cooperate safely. Terminal jobs are returned
         unchanged so the service layer can report a clear conflict later.
         """
 
@@ -128,6 +128,35 @@ class JobRepository:
             await self._session.flush()
             return job
 
+        return job
+
+    async def mark_cancelled(
+        self,
+        *,
+        job_id: JobId,
+        worker_id: str | None = None,
+        error_message: str | None = None,
+    ) -> JobModel | None:
+        """Move a cancellable running job to the cancelled terminal state."""
+
+        job = await self._locked_job_by_id(job_id)
+        if job is None or job.status not in {
+            JobStatus.RUNNING.value,
+            JobStatus.CANCEL_REQUESTED.value,
+        }:
+            return None
+        if worker_id is not None and job.lease_owner != worker_id:
+            return None
+
+        now = _utc_now()
+        job.status = JobStatus.CANCELLED.value
+        job.result = None
+        job.error_message = error_message
+        job.lease_owner = None
+        job.lease_expires_at = None
+        job.finished_at = now
+        job.updated_at = now
+        await self._session.flush()
         return job
 
     async def claim_queued_job(

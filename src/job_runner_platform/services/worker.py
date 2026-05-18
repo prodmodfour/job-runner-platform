@@ -18,6 +18,8 @@ from job_runner_platform.domain.jobs import (
     JobType,
 )
 from job_runner_platform.handlers import (
+    CancellationCheck,
+    JobCancellationRequestedError,
     JobHandlerContext,
     JobHandlerError,
     run_job_handler,
@@ -50,6 +52,7 @@ class WorkerProcessOutcome(StrEnum):
     SUCCEEDED = "succeeded"
     RETRIED = "retried"
     DEAD_LETTERED = "dead_lettered"
+    CANCELLED = "cancelled"
     RECORD_SKIPPED = "record_skipped"
 
 
@@ -214,6 +217,22 @@ class JobWorkerService:
         claimed_job = await self._claim_job(job_id)
         if claimed_job is None:
             await self._queue.acknowledge(job_id)
+            current_status = await self._get_job_status(job_id)
+            if current_status is JobStatus.CANCELLED:
+                self._logger.info(
+                    "cancelled job dispatch signal skipped",
+                    extra={
+                        "worker_id": self._worker_id,
+                        "job_id": str(job_id),
+                        "worker_outcome": WorkerProcessOutcome.CANCELLED.value,
+                    },
+                )
+                return WorkerProcessResult(
+                    outcome=WorkerProcessOutcome.CANCELLED,
+                    job_id=job_id,
+                    job_status=JobStatus.CANCELLED,
+                )
+
             self._logger.info(
                 "job claim skipped",
                 extra={
@@ -225,6 +244,7 @@ class JobWorkerService:
             return WorkerProcessResult(
                 outcome=WorkerProcessOutcome.CLAIM_SKIPPED,
                 job_id=job_id,
+                job_status=current_status,
             )
 
         self._logger.info(
@@ -237,6 +257,10 @@ class JobWorkerService:
             },
         )
 
+        cancellation_result = await self._record_cancelled_if_requested(claimed_job)
+        if cancellation_result is not None:
+            return cancellation_result
+
         try:
             result = await self._handler_runner(
                 claimed_job.job_type,
@@ -244,8 +268,11 @@ class JobWorkerService:
                 context=JobHandlerContext(
                     attempt=claimed_job.attempt,
                     job_id=claimed_job.id,
+                    cancellation_check=self._cancellation_check_for(claimed_job.id),
                 ),
             )
+        except JobCancellationRequestedError as exc:
+            return await self._record_cancelled_job(claimed_job, exc)
         except JobHandlerError as exc:
             return await self._record_failed_job(claimed_job, exc)
         except Exception as exc:
@@ -260,9 +287,16 @@ class JobWorkerService:
             )
             return await self._record_failed_job(claimed_job, exc)
 
+        cancellation_result = await self._record_cancelled_if_requested(claimed_job)
+        if cancellation_result is not None:
+            return cancellation_result
+
         stored_status = await self._record_success(claimed_job.id, result)
-        await self._queue.acknowledge(claimed_job.id)
         if stored_status is None:
+            cancellation_result = await self._record_cancelled_if_requested(claimed_job)
+            if cancellation_result is not None:
+                return cancellation_result
+            await self._queue.acknowledge(claimed_job.id)
             self._logger.warning(
                 "job completion skipped because status was no longer running",
                 extra={
@@ -275,6 +309,8 @@ class JobWorkerService:
                 outcome=WorkerProcessOutcome.RECORD_SKIPPED,
                 job_id=claimed_job.id,
             )
+
+        await self._queue.acknowledge(claimed_job.id)
 
         self._logger.info(
             "job succeeded",
@@ -317,11 +353,66 @@ class JobWorkerService:
                 return None
             return JobStatus(completed.status)
 
+    async def _record_cancelled_if_requested(
+        self,
+        claimed_job: _ClaimedJob,
+    ) -> WorkerProcessResult | None:
+        if not await self._is_cancellation_requested(claimed_job.id):
+            return None
+        exc = JobCancellationRequestedError("job cancellation requested")
+        return await self._record_cancelled_job(claimed_job, exc)
+
+    async def _record_cancelled_job(
+        self,
+        claimed_job: _ClaimedJob,
+        exc: Exception,
+    ) -> WorkerProcessResult:
+        error_message = _safe_error_message(exc)
+        stored_status = await self._record_cancelled(claimed_job.id, error_message)
+        await self._queue.acknowledge(claimed_job.id)
+        if stored_status is None:
+            self._logger.warning(
+                "job cancellation recording skipped because status was not cancellable",
+                extra={
+                    "worker_id": self._worker_id,
+                    "job_id": str(claimed_job.id),
+                    "worker_outcome": WorkerProcessOutcome.RECORD_SKIPPED.value,
+                    "error_type": exc.__class__.__name__,
+                },
+            )
+            return WorkerProcessResult(
+                outcome=WorkerProcessOutcome.RECORD_SKIPPED,
+                job_id=claimed_job.id,
+                error_message=error_message,
+            )
+
+        self._logger.info(
+            "job cancelled",
+            extra={
+                "worker_id": self._worker_id,
+                "job_id": str(claimed_job.id),
+                "job_type": claimed_job.job_type.value,
+                "attempt": claimed_job.attempt,
+                "worker_outcome": WorkerProcessOutcome.CANCELLED.value,
+                "error_type": exc.__class__.__name__,
+            },
+        )
+        return WorkerProcessResult(
+            outcome=WorkerProcessOutcome.CANCELLED,
+            job_id=claimed_job.id,
+            job_status=stored_status,
+            error_message=error_message,
+        )
+
     async def _record_failed_job(
         self,
         claimed_job: _ClaimedJob,
         exc: Exception,
     ) -> WorkerProcessResult:
+        cancellation_result = await self._record_cancelled_if_requested(claimed_job)
+        if cancellation_result is not None:
+            return cancellation_result
+
         error_message = _safe_error_message(exc)
         attempts_remaining = claimed_job.attempt < claimed_job.max_attempts
         if attempts_remaining:
@@ -338,8 +429,11 @@ class JobWorkerService:
             outcome = WorkerProcessOutcome.DEAD_LETTERED
             log_message = "job dead-lettered after exhausting attempts"
 
-        await self._queue.acknowledge(claimed_job.id)
         if stored_status is None:
+            cancellation_result = await self._record_cancelled_if_requested(claimed_job)
+            if cancellation_result is not None:
+                return cancellation_result
+            await self._queue.acknowledge(claimed_job.id)
             self._logger.warning(
                 "job failure recording skipped because status was no longer running",
                 extra={
@@ -354,6 +448,8 @@ class JobWorkerService:
                 job_id=claimed_job.id,
                 error_message=error_message,
             )
+
+        await self._queue.acknowledge(claimed_job.id)
 
         self._logger.warning(
             log_message,
@@ -403,6 +499,49 @@ class JobWorkerService:
             if dead_lettered is None:
                 return None
             return JobStatus(dead_lettered.status)
+
+    async def _record_cancelled(
+        self,
+        job_id: JobId,
+        error_message: str,
+    ) -> JobStatus | None:
+        async with session_scope(self._session_factory) as session:
+            repository = JobRepository(session)
+            cancelled = await repository.mark_cancelled(
+                job_id=job_id,
+                worker_id=self._worker_id,
+                error_message=error_message,
+            )
+            if cancelled is None:
+                return None
+            return JobStatus(cancelled.status)
+
+    async def _get_job_status(self, job_id: JobId) -> JobStatus | None:
+        async with session_scope(self._session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.get_job_by_id(job_id)
+            if job is None:
+                return None
+            return JobStatus(job.status)
+
+    async def _is_cancellation_requested(self, job_id: JobId) -> bool:
+        async with session_scope(self._session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.get_job_by_id(job_id)
+            if job is None:
+                return False
+            status = JobStatus(job.status)
+            if status is JobStatus.CANCELLED:
+                return True
+            if status is not JobStatus.CANCEL_REQUESTED:
+                return False
+            return job.lease_owner in {None, self._worker_id}
+
+    def _cancellation_check_for(self, job_id: JobId) -> CancellationCheck:
+        async def cancellation_check() -> bool:
+            return await self._is_cancellation_requested(job_id)
+
+        return cancellation_check
 
 
 def _snapshot_stale_leased_job(job: JobModel) -> _StaleLeasedJob:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final, Literal, Protocol, cast
@@ -20,6 +20,9 @@ from job_runner_platform.domain.jobs import (
 
 MAX_SLEEP_SECONDS: Final[float] = 5.0
 MAX_CHECKSUM_TEXT_BYTES: Final[int] = 1_000_000
+DEFAULT_CANCELLATION_POLL_SECONDS: Final[float] = 0.05
+
+type CancellationCheck = Callable[[], Awaitable[bool]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,10 +31,32 @@ class JobHandlerContext:
 
     attempt: int = 1
     job_id: JobId | None = None
+    cancellation_check: CancellationCheck | None = None
+    cancellation_poll_seconds: float = DEFAULT_CANCELLATION_POLL_SECONDS
 
     def __post_init__(self) -> None:
         if self.attempt < 1:
             raise ValueError("attempt must be greater than or equal to 1")
+        if self.cancellation_poll_seconds <= 0:
+            raise ValueError("cancellation_poll_seconds must be greater than 0")
+
+    async def is_cancelled(self) -> bool:
+        """Return whether the running job has a cancellation request."""
+
+        if self.cancellation_check is None:
+            return False
+        return await self.cancellation_check()
+
+    async def raise_if_cancelled(self) -> None:
+        """Raise a safe handler error when cancellation has been requested."""
+
+        if not await self.is_cancelled():
+            return
+        if self.job_id is None:
+            message = "job cancellation requested"
+        else:
+            message = f"job {self.job_id} cancellation requested"
+        raise JobCancellationRequestedError(message)
 
 
 class JobHandler(Protocol):
@@ -59,6 +84,10 @@ class InvalidJobPayloadError(JobHandlerError):
 
 class HandlerExecutionError(JobHandlerError):
     """Raised by handlers that intentionally fail for retry/dead-letter demos."""
+
+
+class JobCancellationRequestedError(JobHandlerError):
+    """Raised by cooperative handlers when a job cancellation is requested."""
 
 
 class _HandlerPayload(BaseModel):
@@ -113,11 +142,24 @@ async def sleep_handler(
     payload: JobPayload,
     context: JobHandlerContext,
 ) -> JobResult:
-    """Sleep for a bounded number of seconds using asyncio only."""
+    """Sleep for a bounded number of seconds using asyncio only.
 
-    _ = context
+    The handler checks for cancellation between short ``asyncio.sleep``
+    intervals. It never starts subprocesses or performs host operations.
+    """
+
     parsed_payload = _validate_payload(JobType.SLEEP, _SleepPayload, payload)
-    await asyncio.sleep(parsed_payload.seconds)
+    await context.raise_if_cancelled()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + parsed_payload.seconds
+    while True:
+        remaining_seconds = deadline - loop.time()
+        if remaining_seconds <= 0:
+            break
+        await asyncio.sleep(
+            min(remaining_seconds, context.cancellation_poll_seconds),
+        )
+        await context.raise_if_cancelled()
     return {"slept_seconds": parsed_payload.seconds}
 
 

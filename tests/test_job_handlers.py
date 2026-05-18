@@ -11,6 +11,7 @@ from job_runner_platform.handlers import (
     MAX_SLEEP_SECONDS,
     HandlerExecutionError,
     InvalidJobPayloadError,
+    JobCancellationRequestedError,
     JobHandlerContext,
     UnknownJobHandlerError,
     run_job_handler,
@@ -41,6 +42,31 @@ def test_sleep_handler_rejects_duration_above_demo_limit() -> None:
         asyncio.run(
             run_job_handler(JobType.SLEEP, {"seconds": MAX_SLEEP_SECONDS + 0.1})
         )
+
+
+def test_sleep_handler_observes_cooperative_cancellation() -> None:
+    asyncio.run(_exercise_sleep_handler_cancellation())
+
+
+async def _exercise_sleep_handler_cancellation() -> None:
+    checks = 0
+
+    async def cancellation_check() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks >= 2
+
+    with pytest.raises(JobCancellationRequestedError, match="cancellation requested"):
+        await run_job_handler(
+            JobType.SLEEP,
+            {"seconds": 0.2},
+            context=JobHandlerContext(
+                cancellation_check=cancellation_check,
+                cancellation_poll_seconds=0.01,
+            ),
+        )
+
+    assert checks >= 2
 
 
 def test_checksum_handler_returns_sha256_for_utf8_text() -> None:
@@ -83,6 +109,9 @@ def test_always_fail_handler_raises_safe_execution_error() -> None:
 def test_handler_context_rejects_invalid_attempt_number() -> None:
     with pytest.raises(ValueError, match="attempt"):
         JobHandlerContext(attempt=0)
+
+    with pytest.raises(ValueError, match="cancellation_poll_seconds"):
+        JobHandlerContext(cancellation_poll_seconds=0)
 
 
 def test_unknown_handler_name_is_rejected() -> None:

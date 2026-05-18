@@ -158,8 +158,8 @@ class JobService:
         """Cancel a queued job or request cancellation for a running job.
 
         Queued jobs move directly to ``cancelled`` because no worker has started
-        them. Running jobs move to ``cancel_requested`` so later worker runtime
-        code can cooperate safely. Terminal jobs are rejected with a conflict.
+        them. Running jobs move to ``cancel_requested`` so the owning worker can
+        cooperate safely. Terminal jobs are rejected with a conflict.
         """
 
         existing_job = await self._repository.get_job_by_id(job_id)

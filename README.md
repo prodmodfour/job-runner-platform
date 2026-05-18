@@ -6,7 +6,7 @@ The repository is intentionally public-safe: it uses only generic local configur
 
 ## Current status
 
-The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, and dead-letters jobs that exhaust `max_attempts`. Cancellation handling in workers, metrics, Docker Compose, and CI will be added in later tickets.
+The repository now includes the initial Python package skeleton, a FastAPI application shell with structured JSON logging, `X-Request-ID` propagation, documentation disabled by default, `GET /healthz`, explicit job domain/API schemas, the initial PostgreSQL jobs table model plus Alembic migration, an internal SQLAlchemy repository layer for job persistence/state transitions, a Redis-backed queue abstraction for job-ID dispatch signals, a job service layer for create/get/list/cancel workflows, FastAPI job routes for those workflows, safe built-in demo job handlers, and a worker CLI/runtime that claims queued jobs with leases, executes allowlisted handlers, retries failures, recovers stale leases, cooperatively cancels running jobs where safe, and dead-letters jobs that exhaust `max_attempts`. Metrics, Docker Compose, and CI will be added in later tickets.
 
 ## Public-safety constraints
 
@@ -92,7 +92,7 @@ The handler registry contains exactly the allowlisted demo handlers. Handlers va
 | Handler | Payload shape |
 | --- | --- |
 | `echo` | Any JSON object, returned as `{ "payload": ... }`. |
-| `sleep` | `{ "seconds": 0.5 }`, bounded to `0` through `5.0` seconds. |
+| `sleep` | `{ "seconds": 0.5 }`, bounded to `0` through `5.0` seconds; observes cancellation between short async sleep intervals. |
 | `checksum` | `{ "text": "hello", "algorithm": "sha256" }`; `algorithm` is optional and only `sha256` is supported. |
 | `fail_once` | `{}`; first attempt fails safely, later attempts succeed. |
 | `always_fail` | `{}`; always fails safely for future dead-letter demos. |
@@ -101,7 +101,7 @@ See [`docs/job-handlers.md`](docs/job-handlers.md) for result shapes and limits.
 
 ## Job service layer
 
-`JobService` contains the current business workflow for safe job submission and cancellation. It validates job types against the allowlist, persists new jobs through `JobRepository`, publishes Redis dispatch signals through the queue abstraction, returns existing jobs on idempotency-key replay without publishing duplicate signals, lists jobs with bounded pagination, and rejects cancellation of terminal jobs with a service-layer conflict error. Queued cancellations currently move directly to `cancelled`; running jobs move to `cancel_requested` for future cooperative worker handling.
+`JobService` contains the current business workflow for safe job submission and cancellation. It validates job types against the allowlist, persists new jobs through `JobRepository`, publishes Redis dispatch signals through the queue abstraction, returns existing jobs on idempotency-key replay without publishing duplicate signals, lists jobs with bounded pagination, and rejects cancellation of terminal jobs with a service-layer conflict error. Queued cancellations move directly to `cancelled`; running jobs move to `cancel_requested` so workers can observe the request and transition them to the terminal `cancelled` state.
 
 ## Queue dispatch abstraction
 
@@ -111,7 +111,7 @@ See [`docs/decisions/0002-redis-as-dispatch-signal.md`](docs/decisions/0002-redi
 
 ## Worker runtime
 
-The worker CLI is available as `job-runner-worker` or `python -m job_runner_platform.worker`. It recovers stale leases, polls Redis for job ID dispatch signals, claims queued jobs through the service/repository path, runs only the safe allowlisted built-in handlers, records successful results, requeues retryable failures, marks exhausted jobs `dead_lettered` in PostgreSQL, acknowledges duplicate/obsolete signals safely, and logs lifecycle events with `worker_id` and `job_id` fields.
+The worker CLI is available as `job-runner-worker` or `python -m job_runner_platform.worker`. It recovers stale leases, polls Redis for job ID dispatch signals, claims queued jobs through the service/repository path, runs only the safe allowlisted built-in handlers, records successful results, requeues retryable failures, marks exhausted jobs `dead_lettered` in PostgreSQL, records requested cancellations as `cancelled`, acknowledges duplicate/obsolete signals safely, and logs lifecycle events with `worker_id` and `job_id` fields.
 
 Local run flow once PostgreSQL and Redis are available:
 
@@ -123,7 +123,7 @@ uv run job-runner-worker          # long-running worker
 uv run job-runner-worker --once   # process at most one signal, then exit
 ```
 
-Shutdown is cooperative: `SIGINT`/`SIGTERM` ask the worker to stop between jobs. If a safe handler is already running, the worker lets it finish and records the outcome before exiting. On handler failure, jobs are requeued while attempts remain and are marked `dead_lettered` after `max_attempts`. Each worker loop also recovers expired `running` leases: jobs with attempts remaining are requeued and re-signalled, while exhausted jobs are marked `dead_lettered`. Cooperative cancellation inside running handlers is intentionally left for a later ticket.
+Shutdown is cooperative: `SIGINT`/`SIGTERM` ask the worker to stop between jobs. If a safe handler is already running, the worker lets it finish and records the outcome before exiting. Job cancellation is also cooperative: queued jobs are terminally `cancelled`, running jobs become `cancel_requested`, and handlers that can safely pause (currently `sleep`) check for that request between short async intervals before the worker records the terminal `cancelled` state. On handler failure, jobs are requeued while attempts remain and are marked `dead_lettered` after `max_attempts`. Each worker loop also recovers expired `running` leases: jobs with attempts remaining are requeued and re-signalled, while exhausted jobs are marked `dead_lettered`.
 
 See [`docs/decisions/0004-leases-and-stale-job-recovery.md`](docs/decisions/0004-leases-and-stale-job-recovery.md) for the lease recovery design record.
 
@@ -147,7 +147,7 @@ A local PostgreSQL service is not yet provided by this repository; Docker Compos
 - All HTTP responses include `X-Request-ID`; an incoming value is propagated and a UUID is generated when the header is absent.
 - Swagger/ReDoc/OpenAPI routes are disabled by default for safer public-facing defaults.
 
-The job API uses PostgreSQL and Redis through the service, repository, and queue layers. Safe handlers, the worker runtime, retry, dead-letter behaviour, and stale lease recovery are implemented and unit-tested, but a local Docker Compose stack is not available yet, so local end-to-end job execution still requires separately managed PostgreSQL and Redis services.
+The job API uses PostgreSQL and Redis through the service, repository, and queue layers. Safe handlers, the worker runtime, retry, dead-letter behaviour, cancellation, and stale lease recovery are implemented and unit-tested, but a local Docker Compose stack is not available yet, so local end-to-end job execution still requires separately managed PostgreSQL and Redis services.
 
 ## Quality gate
 

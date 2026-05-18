@@ -13,7 +13,13 @@ from sqlalchemy.ext.asyncio import (
 
 from job_runner_platform.database.base import Base
 from job_runner_platform.database.session import session_scope
-from job_runner_platform.domain.jobs import JobPayload, JobResult, JobStatus, JobType
+from job_runner_platform.domain.jobs import (
+    JobId,
+    JobPayload,
+    JobResult,
+    JobStatus,
+    JobType,
+)
 from job_runner_platform.handlers import JobHandlerContext
 from job_runner_platform.queues import InMemoryJobQueue
 from job_runner_platform.repositories import JobRepository
@@ -106,6 +112,116 @@ async def _exercise_worker_duplicate_signal_safety(tmp_path: Path) -> None:
             assert stored is not None
             assert stored.status == JobStatus.SUCCEEDED.value
             assert stored.attempts == 1
+    finally:
+        await engine.dispose()
+
+
+def test_worker_runtime_acknowledges_cancelled_queued_job(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_exercise_worker_cancelled_queued_job(tmp_path))
+
+
+async def _exercise_worker_cancelled_queued_job(tmp_path: Path) -> None:
+    engine, session_factory = await _build_sqlite_session_factory(tmp_path)
+    try:
+        queue = InMemoryJobQueue()
+        async with session_scope(session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.create_job(
+                job_type=JobType.SLEEP,
+                payload={"seconds": 0.1},
+            )
+            job_id = job.id
+            await queue.enqueue(job_id)
+            cancelled = await repository.request_cancellation(job_id)
+            assert cancelled is not None
+            assert cancelled.status == JobStatus.CANCELLED.value
+
+        runtime = _build_runtime(
+            session_factory=session_factory,
+            queue=queue,
+            worker_id="worker-cancelled-queued",
+        )
+
+        result = await runtime.run_once()
+
+        assert result.outcome is WorkerProcessOutcome.CANCELLED
+        assert result.job_id == job_id
+        assert result.job_status is JobStatus.CANCELLED
+        assert queue.pending_count == 0
+
+        async with session_factory() as session:
+            stored = await JobRepository(session).get_job_by_id(job_id)
+            assert stored is not None
+            assert stored.status == JobStatus.CANCELLED.value
+            assert stored.attempts == 0
+            assert stored.started_at is None
+            assert stored.finished_at is not None
+            assert stored.lease_owner is None
+            assert stored.lease_expires_at is None
+    finally:
+        await engine.dispose()
+
+
+def test_worker_runtime_cooperatively_cancels_running_sleep_job(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_exercise_worker_running_sleep_cancellation(tmp_path))
+
+
+async def _exercise_worker_running_sleep_cancellation(tmp_path: Path) -> None:
+    engine, session_factory = await _build_sqlite_session_factory(tmp_path)
+    try:
+        queue = InMemoryJobQueue()
+        async with session_scope(session_factory) as session:
+            repository = JobRepository(session)
+            job = await repository.create_job(
+                job_type=JobType.SLEEP,
+                payload={"seconds": 0.5},
+            )
+            job_id = job.id
+            await queue.enqueue(job_id)
+
+        runtime = _build_runtime(
+            session_factory=session_factory,
+            queue=queue,
+            worker_id="worker-running-cancel",
+        )
+
+        worker_task = asyncio.create_task(runtime.run_once())
+        await _wait_for_status(
+            session_factory=session_factory,
+            job_id=job_id,
+            status=JobStatus.RUNNING,
+        )
+        async with session_scope(session_factory) as session:
+            cancellation_requested = await JobRepository(session).request_cancellation(
+                job_id,
+            )
+            assert cancellation_requested is not None
+            assert cancellation_requested.status == JobStatus.CANCEL_REQUESTED.value
+
+        result = await asyncio.wait_for(worker_task, timeout=2.0)
+
+        assert result.outcome is WorkerProcessOutcome.CANCELLED
+        assert result.job_id == job_id
+        assert result.job_status is JobStatus.CANCELLED
+        assert result.error_message is not None
+        assert "JobCancellationRequestedError" in result.error_message
+        assert queue.pending_count == 0
+
+        async with session_factory() as session:
+            stored = await JobRepository(session).get_job_by_id(job_id)
+            assert stored is not None
+            assert stored.status == JobStatus.CANCELLED.value
+            assert stored.result is None
+            assert stored.error_message == result.error_message
+            assert stored.attempts == 1
+            assert stored.lease_owner is None
+            assert stored.lease_expires_at is None
+            assert stored.started_at is not None
+            assert stored.finished_at is not None
     finally:
         await engine.dispose()
 
@@ -478,6 +594,24 @@ async def _exercise_worker_error_truncation(tmp_path: Path) -> None:
             assert stored.error_message == result.error_message
     finally:
         await engine.dispose()
+
+
+async def _wait_for_status(
+    *,
+    session_factory: async_sessionmaker[AsyncSession],
+    job_id: JobId,
+    status: JobStatus,
+    timeout_seconds: float = 1.0,
+) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    while loop.time() < deadline:
+        async with session_factory() as session:
+            stored = await JobRepository(session).get_job_by_id(job_id)
+            if stored is not None and stored.status == status.value:
+                return
+        await asyncio.sleep(0.005)
+    raise AssertionError(f"job {job_id} did not reach status {status.value}")
 
 
 async def _raise_long_error(

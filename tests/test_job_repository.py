@@ -244,6 +244,25 @@ async def _exercise_repository_cancellation(tmp_path: Path) -> None:
             assert cancellation_requested.status == JobStatus.CANCEL_REQUESTED.value
             assert cancellation_requested.lease_owner == "worker-1"
 
+            wrong_worker_cancelled = await repository.mark_cancelled(
+                job_id=running_job.id,
+                worker_id="worker-2",
+                error_message="wrong worker",
+            )
+            assert wrong_worker_cancelled is None
+
+            worker_cancelled = await repository.mark_cancelled(
+                job_id=running_job.id,
+                worker_id="worker-1",
+                error_message="cancellation requested",
+            )
+            assert worker_cancelled is not None
+            assert worker_cancelled.status == JobStatus.CANCELLED.value
+            assert worker_cancelled.error_message == "cancellation requested"
+            assert worker_cancelled.lease_owner is None
+            assert worker_cancelled.lease_expires_at is None
+            assert worker_cancelled.finished_at is not None
+
             terminal_job = await repository.create_job(job_type=JobType.ECHO)
             await repository.claim_queued_job(
                 job_id=terminal_job.id,
