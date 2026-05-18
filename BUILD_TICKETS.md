@@ -629,7 +629,7 @@ Commit when complete.
 
 ## 020 — Add docs: architecture, operations, runbook, API walkthrough
 
-Status: TODO
+Status: DONE
 
 Create or complete:
 

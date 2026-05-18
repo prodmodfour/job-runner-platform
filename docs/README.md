@@ -1,9 +1,11 @@
 # Documentation
 
-Project documentation lives here. Architecture, operations, runbook, API walkthrough, and decision records will be expanded in later build tickets.
+Project documentation lives here. These docs describe the current public-safe portfolio implementation and link to narrower references where useful.
 
-- [Safe built-in job handlers](job-handlers.md)
-- [Runbook](runbook.md)
-- [Local observability](observability.md)
-- [Architecture decision records](decisions/README.md)
-- Worker runtime local instructions are currently in the repository [README](../README.md#worker-runtime).
+- [Architecture](architecture.md) — code boundaries, job lifecycle, state transitions, queue design, retries, cancellation, leases, metrics, and limitations.
+- [API walkthrough](api-walkthrough.md) — local HTTP examples, response shapes, idempotency, auth behaviour, and error responses.
+- [Operations](operations.md) — local Docker Compose operation, manual runs, configuration, migrations, readiness, observability, and failure modes.
+- [Runbook](runbook.md) — practical triage procedures for health, readiness, queued jobs, retries, dead-letter, cancellation, stale leases, metrics, auth, and quality gates.
+- [Safe built-in job handlers](job-handlers.md) — allowlisted handler payloads, results, and limits.
+- [Local observability](observability.md) — Prometheus and Grafana local scrape/dashboard notes.
+- [Architecture decision records](decisions/README.md) — accepted design records for implemented reliability choices.
